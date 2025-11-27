@@ -8,6 +8,7 @@ from openai import OpenAI
 import platform
 from docx import Document
 from io import BytesIO
+from pypdf import PdfReader
 
 # --- Audio Extraction ---
 
@@ -366,7 +367,34 @@ MOCK_INTELLIGENCE_RESPONSE = {
     "summary": "The board approved the previous meeting's minutes. A bid for roof repairs was discussed but deemed too high. It was decided to solicit two additional bids by next week."
 }
 
-def extract_intelligence(transcript_text, api_key):
+def read_file_content(file_obj, filename):
+    """
+    Reads the content of a file-like object based on the filename extension.
+    Supports .txt, .pdf, and .docx.
+    """
+    filename = filename.lower()
+    content = ""
+
+    try:
+        if filename.endswith(".txt"):
+            content = file_obj.read().decode("utf-8")
+        elif filename.endswith(".pdf"):
+            reader = PdfReader(file_obj)
+            for page in reader.pages:
+                content += page.extract_text() + "\n"
+        elif filename.endswith(".docx"):
+            doc = Document(file_obj)
+            for para in doc.paragraphs:
+                content += para.text + "\n"
+        else:
+            # Fallback for other text formats
+            content = file_obj.read().decode("utf-8")
+    except Exception as e:
+        return f"Error reading file: {str(e)}"
+
+    return content
+
+def extract_intelligence(transcript_text, api_key, bylaws_text=None, speakers_count=None):
     """
     Extracts structured data from the transcript using OpenAI GPT-4o.
     If api_key is 'dummy' or empty, returns a mock transcript.
@@ -376,19 +404,41 @@ def extract_intelligence(transcript_text, api_key):
     if not api_key or api_key.strip().lower() == "dummy":
         # Simulate API latency
         time.sleep(2)
-        return MOCK_INTELLIGENCE_RESPONSE
+        # Mock logic for quorum check in mock mode
+        mock_response = MOCK_INTELLIGENCE_RESPONSE.copy()
+        if bylaws_text:
+             # Very simple mock check for demonstration if "Quorum" is in text
+             if "quorum of 5" in bylaws_text.lower():
+                 mock_response["summary"] += " [Provisional - Potential Quorum Issue]"
+        return mock_response
     # -----------------
 
     client = OpenAI(api_key=api_key)
 
     prompt = (
-        "You are an expert HOA Board Secretary. "
-        "Extract the following from the transcript and return ONLY raw JSON: "
-        "1. meeting_date (YYYY-MM-DD), "
-        "2. motions (list of objects with topic, proposer, seconder, vote_outcome, status), "
-        "3. action_items (list of objects with task_description, assigned_to, due_date_inference), "
-        "4. summary (text). "
-        "If date is not found, use null."
+        "You are an expert HOA Board Secretary operating in 'Parliamentarian Mode'. "
+        "Your task is to extract meeting intelligence from the transcript while strictly applying Robert's Rules of Order. "
+        "You will be provided with the meeting transcript and optionally the community bylaws.\n\n"
+
+        "**Inputs:**\n"
+        f"1. Transcript Text\n"
+        f"2. Bylaws Text: {bylaws_text if bylaws_text else 'Not provided'}\n"
+        f"3. Detected Speaker Count: {speakers_count if speakers_count else 'Unknown'}\n\n"
+
+        "**Instructions:**\n"
+        "1. **Meeting Date**: Extract the meeting date (YYYY-MM-DD). If not found, use null.\n"
+        "2. **Motions**: Identify all motions. strictly apply the following validation:\n"
+        "   - A motion MUST have a clear 'Second' to be considered valid for voting.\n"
+        "   - If a motion is proposed but lacks a 'Second', mark the 'status' as 'Failed due to lack of Second' and 'vote_outcome' as 'None'.\n"
+        "   - Extract fields: topic, proposer, seconder, vote_outcome, status.\n"
+        "3. **Action Items**: Extract tasks assigned to individuals (task_description, assigned_to, due_date_inference).\n"
+        "4. **Summary & Quorum Check**:\n"
+        "   - Summarize the meeting.\n"
+        "   - If Bylaws are provided, analyze them to find the required Quorum size.\n"
+        "   - Compare the Quorum requirement with the 'Detected Speaker Count'.\n"
+        "   - If the detected speaker count is LESS than the Quorum requirement, you MUST append the following phrase to the end of the summary: ' [Provisional - Potential Quorum Issue]'.\n\n"
+
+        "Return ONLY raw JSON with keys: meeting_date, motions, action_items, summary."
     )
 
     try:

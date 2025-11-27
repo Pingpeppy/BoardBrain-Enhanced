@@ -68,6 +68,12 @@ if "chat_history" not in st.session_state:
 # File Uploader
 uploaded_file = st.file_uploader("Upload Board Meeting Video", type=["mp4", "mov", "avi"])
 
+# Bylaws Input
+st.markdown("### Community Bylaws (Optional)")
+st.caption("Upload your bylaws to enable 'Parliamentarian Mode' (Quorum Checks & Motion Validation).")
+bylaws_file = st.file_uploader("Upload Bylaws Document", type=["txt", "pdf", "docx"])
+bylaws_paste = st.text_area("Or Paste Bylaws Text Here", height=150)
+
 if uploaded_file is not None:
     # --- Process Button ---
     if st.button("Process Meeting", type="primary"):
@@ -104,7 +110,21 @@ if uploaded_file is not None:
 
             # 5. Extract Intelligence
             status_container.write("🧠 Extracting insights with GPT-4o...")
-            intelligence = processor.extract_intelligence(formatted_text, openai_key)
+
+            # Prepare Bylaws Text
+            bylaws_text = ""
+            if bylaws_file:
+                bylaws_text += processor.read_file_content(bylaws_file, bylaws_file.name) + "\n"
+            if bylaws_paste:
+                bylaws_text += bylaws_paste
+
+            # Count Speakers
+            speakers_count = 0
+            if "utterances" in transcript_obj:
+                speakers = set(u.get("speaker") for u in transcript_obj["utterances"])
+                speakers_count = len(speakers)
+
+            intelligence = processor.extract_intelligence(formatted_text, openai_key, bylaws_text=bylaws_text, speakers_count=speakers_count)
             st.session_state.intelligence_data = intelligence
 
             # Reset chat history on new process

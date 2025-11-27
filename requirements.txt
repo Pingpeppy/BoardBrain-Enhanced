@@ -5,3 +5,4 @@ openai
 static-ffmpeg
 python-dotenv
 python-docx
+pypdf
