@@ -4,8 +4,57 @@ import time
 import json
 import requests
 import tempfile
+from openai import OpenAI
+import platform
 
 # --- Audio Extraction ---
+
+def get_ffmpeg_command():
+    """
+    Attempts to locate FFmpeg in the following order:
+    1. 'static_ffmpeg' python package (auto-installs binary).
+    2. System PATH.
+    3. Common Windows installation paths.
+
+    Returns the command (list of strings or string) to run FFmpeg.
+    Raises RuntimeError if not found.
+    """
+
+    # 1. Try static-ffmpeg (Preferred for auto-install)
+    try:
+        import static_ffmpeg
+        ffmpeg_cmd, _ = static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()
+        return ffmpeg_cmd
+    except ImportError:
+        pass # Not installed, continue to next method
+    except Exception:
+        pass # Failed to fetch/run, continue
+
+    # 2. Check System PATH
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        return "ffmpeg"
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
+    # 3. Check Common Windows Paths (Fallback)
+    if platform.system() == "Windows":
+        possible_paths = [
+            os.path.join(os.getcwd(), "ffmpeg.exe"),
+            r"C:\ffmpeg\bin\ffmpeg.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\WinGet\Packages\ffmpeg\bin\ffmpeg.exe"), # Heuristic
+            os.path.expandvars(r"%USERPROFILE%\ffmpeg.exe"), # User mentioned default powershell location
+        ]
+
+        for path in possible_paths:
+            if os.path.exists(path) and os.path.isfile(path):
+                return path
+
+    raise RuntimeError(
+        "FFmpeg is not installed or not found. "
+        "The application attempted to find it in system PATH, common folders, and via 'static-ffmpeg'. "
+        "Please ensure FFmpeg is installed and reachable."
+    )
 
 def extract_audio(video_path):
     """
@@ -13,6 +62,8 @@ def extract_audio(video_path):
     Converts to 16kHz mono MP3 to save bandwidth.
     Returns the path to the temporary MP3 file.
     """
+    ffmpeg_cmd = get_ffmpeg_command()
+
     try:
         # Create a temp file for the audio
         # We use delete=False because we need to pass the path to AssemblyAI/other funcs
@@ -21,7 +72,7 @@ def extract_audio(video_path):
         os.close(audio_fd)
 
         command = [
-            "ffmpeg",
+            ffmpeg_cmd,
             "-y",  # Overwrite output file if exists
             "-i", video_path,
             "-vn", # Disable video recording
@@ -169,24 +220,37 @@ MOCK_INTELLIGENCE_RESPONSE = {
 def extract_intelligence(transcript_text, api_key):
     """
     Extracts structured data from the transcript using OpenAI GPT-4o.
-    Currently implements a DUMMY response regardless of input.
+    If api_key is 'dummy' or empty, returns a mock transcript.
     """
 
-    # --- REAL IMPLEMENTATION SKELETON (Commented Out) ---
-    # client = OpenAI(api_key=api_key)
-    # prompt = "You are an expert HOA Board Secretary. Extract the following from the transcript and return ONLY raw JSON..."
-    # response = client.chat.completions.create(
-    #     model="gpt-4o",
-    #     messages=[
-    #         {"role": "system", "content": prompt},
-    #         {"role": "user", "content": transcript_text}
-    #     ],
-    #     response_format={"type": "json_object"}
-    # )
-    # return json.loads(response.choices[0].message.content)
-    # ----------------------------------------------------
+    # --- MOCK MODE ---
+    if not api_key or api_key.strip().lower() == "dummy":
+        # Simulate API latency
+        time.sleep(2)
+        return MOCK_INTELLIGENCE_RESPONSE
+    # -----------------
 
-    # --- DUMMY IMPLEMENTATION ---
-    # Simulate API latency
-    time.sleep(2)
-    return MOCK_INTELLIGENCE_RESPONSE
+    client = OpenAI(api_key=api_key)
+
+    prompt = (
+        "You are an expert HOA Board Secretary. "
+        "Extract the following from the transcript and return ONLY raw JSON: "
+        "1. meeting_date (YYYY-MM-DD), "
+        "2. motions (list of objects with topic, proposer, seconder, vote_outcome, status), "
+        "3. action_items (list of objects with task_description, assigned_to, due_date_inference), "
+        "4. summary (text). "
+        "If date is not found, use null."
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": transcript_text}
+            ],
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        raise RuntimeError(f"OpenAI API Error: {str(e)}")
