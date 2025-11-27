@@ -311,6 +311,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     body {{
                         font-family: sans-serif;
                         color: #31333F;
+                        background-color: white;
                     }}
                     .audio-container {{
                         position: sticky;
@@ -369,6 +370,23 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     .word.active {{
                         background-color: #8da4ef;
                         color: white;
+                    }}
+
+                    @media (prefers-color-scheme: dark) {{
+                        body {{
+                            background-color: #0E1117;
+                            color: #FAFAFA;
+                        }}
+                        .audio-container {{
+                            background: #0E1117;
+                            border-bottom: 1px solid #333;
+                        }}
+                        .utterance:hover {{
+                            background-color: #262730;
+                        }}
+                        .word:hover {{
+                            background-color: #333;
+                        }}
                     }}
                 </style>
             </head>

@@ -1,1 +1,5 @@
-[server]\nheadless = true
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
