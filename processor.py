@@ -6,6 +6,8 @@ import requests
 import tempfile
 from openai import OpenAI
 import platform
+from docx import Document
+from io import BytesIO
 
 # --- Audio Extraction ---
 
@@ -254,3 +256,125 @@ def extract_intelligence(transcript_text, api_key):
         return json.loads(response.choices[0].message.content)
     except Exception as e:
         raise RuntimeError(f"OpenAI API Error: {str(e)}")
+
+# --- Document Generation ---
+
+def generate_word_document(intelligence_data, transcript_text, include_transcript=False):
+    """
+    Generates a Word document containing the meeting intelligence and optionally the transcript.
+    Returns a BytesIO object.
+    """
+    doc = Document()
+
+    # Title
+    meeting_date = intelligence_data.get("meeting_date") or "Unknown Date"
+    doc.add_heading(f"Board Meeting Notes - {meeting_date}", 0)
+
+    # Executive Summary
+    doc.add_heading("Executive Summary", level=1)
+    doc.add_paragraph(intelligence_data.get("summary", "No summary available."))
+
+    # Motions
+    doc.add_heading("Motions", level=1)
+    motions = intelligence_data.get("motions", [])
+    if motions:
+        table = doc.add_table(rows=1, cols=5)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Topic'
+        hdr_cells[1].text = 'Proposer'
+        hdr_cells[2].text = 'Seconder'
+        hdr_cells[3].text = 'Outcome'
+        hdr_cells[4].text = 'Status'
+
+        for motion in motions:
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(motion.get("topic", ""))
+            row_cells[1].text = str(motion.get("proposer", ""))
+            row_cells[2].text = str(motion.get("seconder", ""))
+            row_cells[3].text = str(motion.get("vote_outcome", ""))
+            row_cells[4].text = str(motion.get("status", ""))
+    else:
+        doc.add_paragraph("No motions recorded.")
+
+    # Action Items
+    doc.add_heading("Action Items", level=1)
+    actions = intelligence_data.get("action_items", [])
+    if actions:
+        table = doc.add_table(rows=1, cols=3)
+        table.style = 'Table Grid'
+        hdr_cells = table.rows[0].cells
+        hdr_cells[0].text = 'Task'
+        hdr_cells[1].text = 'Assigned To'
+        hdr_cells[2].text = 'Due'
+
+        for action in actions:
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(action.get("task_description", ""))
+            row_cells[1].text = str(action.get("assigned_to", ""))
+            row_cells[2].text = str(action.get("due_date_inference", ""))
+    else:
+        doc.add_paragraph("No action items recorded.")
+
+    # Transcript (Optional)
+    if include_transcript:
+        doc.add_heading("Full Transcript", level=1)
+        doc.add_paragraph(transcript_text)
+
+    # Save to buffer
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+# --- Chat Functionality ---
+
+def chat_with_meeting(transcript_text, chat_history, user_message, api_key):
+    """
+    Sends a message to the LLM with the transcript context and chat history.
+    Returns the assistant's response text.
+    """
+
+    # --- MOCK MODE ---
+    if not api_key or api_key.strip().lower() == "dummy":
+        time.sleep(1)
+        return f"This is a mock response to: '{user_message}' (Mock Mode Enabled)"
+    # -----------------
+
+    client = OpenAI(api_key=api_key)
+
+    # Construct messages
+    # System prompt
+    system_prompt = (
+        "You are a helpful assistant analyzing a Board Meeting transcript. "
+        "Use the provided transcript to answer the user's questions. "
+        "If the answer is not in the transcript, say so."
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Provide transcript context (could be added as a system message or first user message)
+    # Adding it as a system context for better adherence
+    messages.append({
+        "role": "system",
+        "content": f"TRANSCRIPT CONTEXT:\n{transcript_text}"
+    })
+
+    # Add history
+    # chat_history is expected to be list of {"role": "user"|"assistant", "content": "..."}
+    # Streamlit chat format: {"role": "user", "content": "msg"}
+    # We filter/map it just to be safe if needed, but assuming direct pass-through
+    for msg in chat_history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Note: We do NOT append user_message explicitly here because it is expected
+    # that the caller (app.py) has already appended the latest user message to chat_history.
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error communicating with OpenAI: {str(e)}"
