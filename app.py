@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 import base64
 import json
 import streamlit.components.v1 as components
+import altair as alt
 
 # Load environment variables
 load_dotenv()
@@ -178,6 +179,29 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
         col1, col2 = st.columns(2)
         with col1:
             st.caption(f"**Meeting Date**: {data.get('meeting_date', 'Unknown')}")
+
+        st.subheader("🗣️ Speaking Time Distribution")
+        speaking_times = processor.calculate_speaking_time(st.session_state.raw_transcript)
+        if speaking_times:
+            df_speaking = pd.DataFrame(list(speaking_times.items()), columns=['Speaker', 'Time (ms)'])
+            df_speaking['Time (s)'] = df_speaking['Time (ms)'] / 1000
+
+            base = alt.Chart(df_speaking).encode(
+                theta=alt.Theta("Time (s)", stack=True)
+            )
+            pie = base.mark_arc(outerRadius=120).encode(
+                color=alt.Color("Speaker"),
+                order=alt.Order("Time (s)", sort="descending"),
+                tooltip=["Speaker", alt.Tooltip("Time (s)", format=".1f")]
+            )
+            text = base.mark_text(radius=140).encode(
+                text=alt.Text("Time (s)", format=".1f"),
+                order=alt.Order("Time (s)", sort="descending"),
+                color=alt.value("black")
+            )
+            st.altair_chart(pie + text, use_container_width=True)
+        else:
+            st.info("No speaking time data available.")
 
         st.subheader("📋 Motions")
         motions = data.get("motions", [])
