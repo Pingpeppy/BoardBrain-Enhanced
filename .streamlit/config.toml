@@ -1,5 +1,1 @@
-[server]
-headless = true
-
-[browser]
-gatherUsageStats = false
+[server]\nheadless = true
