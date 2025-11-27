@@ -54,6 +54,8 @@ if "intelligence_data" not in st.session_state:
     st.session_state.intelligence_data = None
 if "formatted_transcript" not in st.session_state:
     st.session_state.formatted_transcript = ""
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
 # File Uploader
 uploaded_file = st.file_uploader("Upload Board Meeting Video", type=["mp4", "mov", "avi"])
@@ -96,6 +98,9 @@ if uploaded_file is not None:
             intelligence = processor.extract_intelligence(formatted_text, openai_key)
             st.session_state.intelligence_data = intelligence
 
+            # Reset chat history on new process
+            st.session_state.chat_history = []
+
             # Cleanup
             status_container.write("🧹 Cleaning up temporary files...")
             os.remove(video_path)
@@ -120,7 +125,37 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
 
     data = st.session_state.intelligence_data
 
-    tab1, tab2 = st.tabs(["📊 Insights", "📜 Full Transcript"])
+    # Export Section
+    col_export_1, col_export_2 = st.columns([2, 1])
+    with col_export_1:
+        st.subheader("Results")
+    with col_export_2:
+        include_transcript_in_doc = st.checkbox("Include Transcript in Export")
+
+        @st.cache_data
+        def get_cached_document(data, transcript, include_transcript):
+            """
+            Wrapper to cache the document generation.
+            Returns the bytes of the generated file.
+            """
+            buffer = processor.generate_word_document(data, transcript, include_transcript)
+            return buffer.getvalue()
+
+        # Generate the document (cached)
+        doc_bytes = get_cached_document(
+            data,
+            st.session_state.formatted_transcript,
+            include_transcript_in_doc
+        )
+
+        st.download_button(
+            label="📄 Download Word Doc",
+            data=doc_bytes,
+            file_name=f"Meeting_Notes_{data.get('meeting_date', 'Unknown')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+
+    tab1, tab2, tab3 = st.tabs(["📊 Insights", "📜 Full Transcript", "💬 Chat with Meeting"])
 
     with tab1:
         st.subheader("Executive Summary")
@@ -148,3 +183,33 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
 
     with tab2:
         st.text_area("Transcript", value=st.session_state.formatted_transcript, height=600)
+
+    with tab3:
+        st.subheader("Chat with your Meeting")
+
+        # Display chat messages from history on app rerun
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # React to user input
+        if prompt := st.chat_input("Ask a question about the meeting..."):
+            # Display user message in chat message container
+            st.chat_message("user").markdown(prompt)
+            # Add user message to chat history
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+
+            # Get response from processor
+            with st.spinner("Thinking..."):
+                response_text = processor.chat_with_meeting(
+                    st.session_state.formatted_transcript,
+                    st.session_state.chat_history,
+                    prompt,
+                    openai_key
+                )
+
+            # Display assistant response in chat message container
+            with st.chat_message("assistant"):
+                st.markdown(response_text)
+            # Add assistant response to chat history
+            st.session_state.chat_history.append({"role": "assistant", "content": response_text})
