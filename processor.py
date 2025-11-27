@@ -102,16 +102,139 @@ def extract_audio(video_path):
 # --- Transcription (AssemblyAI) ---
 
 MOCK_TRANSCRIPT_RESPONSE = {
-    "text": "Speaker A: I call this meeting to order. First item is the approval of last month's minutes. Speaker B: I move to approve. Speaker A: Is there a second? Speaker C: I second. Speaker A: All in favor? [Chorus of Ayes]. Motion carries. Next, the roof repairs. We have a bid for $5,000 from Roofing Co. Speaker B: I think that's too high. I propose we get two more bids by next week. Speaker C: Agreed. I'll take that action item.",
+    "text": "Takara Thale: I call this meeting to order. First item is the approval of last month's minutes. Jennifer Mahaffey: I move to approve. Takara Thale: Is there a second? Bill Pate: I second. Takara Thale: All in favor? [Chorus of Ayes]. Motion carries. Next, the roof repairs. We have a bid for $5,000 from Roofing Co. Jennifer Mahaffey: I think that's too high. I propose we get two more bids by next week. Bill Pate: Agreed. I'll take that action item.",
     "utterances": [
-        {"speaker": "A", "text": "I call this meeting to order. First item is the approval of last month's minutes.", "start": 0, "end": 5000},
-        {"speaker": "B", "text": "I move to approve.", "start": 5000, "end": 7000},
-        {"speaker": "A", "text": "Is there a second?", "start": 7000, "end": 9000},
-        {"speaker": "C", "text": "I second.", "start": 9000, "end": 11000},
-        {"speaker": "A", "text": "All in favor? [Chorus of Ayes]. Motion carries.", "start": 11000, "end": 15000},
-        {"speaker": "A", "text": "Next, the roof repairs. We have a bid for $5,000 from Roofing Co.", "start": 15000, "end": 20000},
-        {"speaker": "B", "text": "I think that's too high. I propose we get two more bids by next week.", "start": 20000, "end": 25000},
-        {"speaker": "C", "text": "Agreed. I'll take that action item.", "start": 25000, "end": 28000}
+        {
+            "speaker": "Takara Thale",
+            "text": "I call this meeting to order. First item is the approval of last month's minutes.",
+            "start": 0,
+            "end": 5000,
+            "words": [
+                {"text": "I", "start": 0, "end": 500},
+                {"text": "call", "start": 500, "end": 1000},
+                {"text": "this", "start": 1000, "end": 1500},
+                {"text": "meeting", "start": 1500, "end": 2000},
+                {"text": "to", "start": 2000, "end": 2500},
+                {"text": "order.", "start": 2500, "end": 3000},
+                {"text": "First", "start": 3000, "end": 3500},
+                {"text": "item", "start": 3500, "end": 4000},
+                {"text": "is", "start": 4000, "end": 4200},
+                {"text": "the", "start": 4200, "end": 4400},
+                {"text": "approval", "start": 4400, "end": 4600},
+                {"text": "of", "start": 4600, "end": 4700},
+                {"text": "last", "start": 4700, "end": 4800},
+                {"text": "month's", "start": 4800, "end": 4900},
+                {"text": "minutes.", "start": 4900, "end": 5000}
+            ]
+        },
+        {
+            "speaker": "Jennifer Mahaffey",
+            "text": "I move to approve.",
+            "start": 5000,
+            "end": 7000,
+            "words": [
+                {"text": "I", "start": 5000, "end": 5500},
+                {"text": "move", "start": 5500, "end": 6000},
+                {"text": "to", "start": 6000, "end": 6500},
+                {"text": "approve.", "start": 6500, "end": 7000}
+            ]
+        },
+        {
+            "speaker": "Takara Thale",
+            "text": "Is there a second?",
+            "start": 7000,
+            "end": 9000,
+            "words": [
+                {"text": "Is", "start": 7000, "end": 7500},
+                {"text": "there", "start": 7500, "end": 8000},
+                {"text": "a", "start": 8000, "end": 8500},
+                {"text": "second?", "start": 8500, "end": 9000}
+            ]
+        },
+        {
+            "speaker": "Bill Pate",
+            "text": "I second.",
+            "start": 9000,
+            "end": 11000,
+            "words": [
+                {"text": "I", "start": 9000, "end": 10000},
+                {"text": "second.", "start": 10000, "end": 11000}
+            ]
+        },
+        {
+            "speaker": "Takara Thale",
+            "text": "All in favor? [Chorus of Ayes]. Motion carries.",
+            "start": 11000,
+            "end": 15000,
+            "words": [
+                {"text": "All", "start": 11000, "end": 11500},
+                {"text": "in", "start": 11500, "end": 12000},
+                {"text": "favor?", "start": 12000, "end": 12500},
+                {"text": "[Chorus", "start": 12500, "end": 13500},
+                {"text": "of", "start": 13500, "end": 13800},
+                {"text": "Ayes].", "start": 13800, "end": 14000},
+                {"text": "Motion", "start": 14000, "end": 14500},
+                {"text": "carries.", "start": 14500, "end": 15000}
+            ]
+        },
+        {
+            "speaker": "Takara Thale",
+            "text": "Next, the roof repairs. We have a bid for $5,000 from Roofing Co.",
+            "start": 15000,
+            "end": 20000,
+            "words": [
+                {"text": "Next,", "start": 15000, "end": 15500},
+                {"text": "the", "start": 15500, "end": 15800},
+                {"text": "roof", "start": 15800, "end": 16500},
+                {"text": "repairs.", "start": 16500, "end": 17000},
+                {"text": "We", "start": 17000, "end": 17500},
+                {"text": "have", "start": 17500, "end": 18000},
+                {"text": "a", "start": 18000, "end": 18200},
+                {"text": "bid", "start": 18200, "end": 18500},
+                {"text": "for", "start": 18500, "end": 18700},
+                {"text": "$5,000", "start": 18700, "end": 19200},
+                {"text": "from", "start": 19200, "end": 19500},
+                {"text": "Roofing", "start": 19500, "end": 19800},
+                {"text": "Co.", "start": 19800, "end": 20000}
+            ]
+        },
+        {
+            "speaker": "Jennifer Mahaffey",
+            "text": "I think that's too high. I propose we get two more bids by next week.",
+            "start": 20000,
+            "end": 25000,
+            "words": [
+                {"text": "I", "start": 20000, "end": 20500},
+                {"text": "think", "start": 20500, "end": 21000},
+                {"text": "that's", "start": 21000, "end": 21500},
+                {"text": "too", "start": 21500, "end": 22000},
+                {"text": "high.", "start": 22000, "end": 22500},
+                {"text": "I", "start": 22500, "end": 23000},
+                {"text": "propose", "start": 23000, "end": 23500},
+                {"text": "we", "start": 23500, "end": 23800},
+                {"text": "get", "start": 23800, "end": 24000},
+                {"text": "two", "start": 24000, "end": 24300},
+                {"text": "more", "start": 24300, "end": 24500},
+                {"text": "bids", "start": 24500, "end": 24700},
+                {"text": "by", "start": 24700, "end": 24800},
+                {"text": "next", "start": 24800, "end": 24900},
+                {"text": "week.", "start": 24900, "end": 25000}
+            ]
+        },
+        {
+            "speaker": "Bill Pate",
+            "text": "Agreed. I'll take that action item.",
+            "start": 25000,
+            "end": 28000,
+            "words": [
+                {"text": "Agreed.", "start": 25000, "end": 25500},
+                {"text": "I'll", "start": 25500, "end": 26000},
+                {"text": "take", "start": 26000, "end": 26500},
+                {"text": "that", "start": 26500, "end": 27000},
+                {"text": "action", "start": 27000, "end": 27500},
+                {"text": "item.", "start": 27500, "end": 28000}
+            ]
+        }
     ]
 }
 

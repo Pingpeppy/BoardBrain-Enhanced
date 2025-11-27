@@ -212,6 +212,25 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
                 # Create a single dummy utterance for the whole text
                 transcript_data = [{"speaker": "Unknown", "text": st.session_state.raw_transcript["text"], "start": 0, "end": 9999999}]
 
+            # Ensure 'words' exist for word-by-word highlighting
+            for utt in transcript_data:
+                if "words" not in utt:
+                    # Create dummy words by splitting text
+                    words = utt.get("text", "").split(" ")
+                    utt["words"] = []
+                    duration = utt.get("end", 0) - utt.get("start", 0)
+                    if duration < 0: duration = 1000
+                    word_duration = duration / max(len(words), 1)
+                    current_time = utt.get("start", 0)
+
+                    for w in words:
+                        utt["words"].append({
+                            "text": w,
+                            "start": current_time,
+                            "end": current_time + word_duration
+                        })
+                        current_time += word_duration
+
             transcript_json = json.dumps(transcript_data)
 
             # HTML/JS/CSS Component
@@ -243,14 +262,12 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
                         padding: 10px;
                         border-radius: 5px;
                         margin-bottom: 10px;
-                        cursor: pointer;
                         transition: background-color 0.2s;
                     }}
                     .utterance:hover {{
                         background-color: #f0f2f6;
                     }}
                     .utterance.active {{
-                        background-color: #e6f3ff; /* Highlight color */
                         border-left: 4px solid #2e7af1;
                     }}
                     .speaker-badge {{
@@ -263,10 +280,26 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
                         color: white;
                         background-color: #555;
                     }}
+                    .speaker-Takara {{ background-color: #ff4b4b; }}
+                    .speaker-Jennifer {{ background-color: #2e7af1; }}
+                    .speaker-Bill {{ background-color: #2bb02b; }}
                     .speaker-A {{ background-color: #ff4b4b; }}
                     .speaker-B {{ background-color: #2e7af1; }}
                     .speaker-C {{ background-color: #2bb02b; }}
-                    .speaker-D {{ background-color: #ffa500; }}
+
+                    .word {{
+                        cursor: pointer;
+                        padding: 1px 2px;
+                        border-radius: 3px;
+                        transition: background-color 0.1s;
+                    }}
+                    .word:hover {{
+                        background-color: #e0e0e0;
+                    }}
+                    .word.active {{
+                        background-color: #8da4ef;
+                        color: white;
+                    }}
                 </style>
             </head>
             <body>
@@ -295,61 +328,119 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
 
                         // Speaker Badge
                         const speakerBadge = document.createElement('span');
-                        speakerBadge.className = 'speaker-badge speaker-' + utt.speaker;
-                        speakerBadge.innerText = 'Speaker ' + utt.speaker;
+                        // Use first name for class color mapping
+                        const firstName = utt.speaker.split(' ')[0];
+                        speakerBadge.className = 'speaker-badge speaker-' + firstName;
+                        speakerBadge.innerText = utt.speaker;
                         div.appendChild(speakerBadge);
 
                         // Line break
                         div.appendChild(document.createElement('br'));
 
-                        // Text
-                        const textSpan = document.createElement('span');
-                        textSpan.innerText = utt.text;
-                        div.appendChild(textSpan);
+                        // Words container (implicit in div)
+                        if (utt.words) {{
+                            utt.words.forEach((word, wIndex) => {{
+                                const wordSpan = document.createElement('span');
+                                wordSpan.className = 'word';
+                                wordSpan.id = 'word-' + index + '-' + wIndex;
+                                wordSpan.dataset.start = word.start;
+                                wordSpan.dataset.end = word.end;
+                                wordSpan.innerText = word.text + ' ';
 
-                        // Click to seek
-                        div.onclick = () => {{
-                            player.currentTime = utt.start / 1000;
-                            player.play();
-                        }};
+                                // Click word to seek
+                                wordSpan.onclick = (e) => {{
+                                    e.stopPropagation(); // Prevent utterance click
+                                    player.currentTime = word.start / 1000;
+                                    player.play();
+                                }};
+
+                                div.appendChild(wordSpan);
+                            }});
+                        }} else {{
+                             // Fallback if no words (should generally be handled by python logic)
+                             const textSpan = document.createElement('span');
+                             textSpan.innerText = utt.text;
+                             div.appendChild(textSpan);
+                        }}
 
                         transcriptContainer.appendChild(div);
                     }});
 
-                    // Highlight active utterance
-                    let currentActiveIndex = -1;
+                    // Highlight active words
+                    let currentActiveWordId = null;
+                    let currentActiveUttIndex = -1;
 
                     player.ontimeupdate = () => {{
                         const timeMs = player.currentTime * 1000;
 
-                        // Find active utterance index
-                        let newActiveIndex = -1;
-                        for (let i = 0; i < transcriptData.length; i++) {{
-                            const utt = transcriptData[i];
-                            if (timeMs >= utt.start && timeMs < utt.end) {{
-                                newActiveIndex = i;
-                                break;
+                        // 1. Find active Utterance (Optimization: check current first)
+                        let activeUttIndex = -1;
+
+                        // Check if still in current utterance
+                        if (currentActiveUttIndex !== -1) {{
+                            const utt = transcriptData[currentActiveUttIndex];
+                            if (timeMs >= utt.start && timeMs <= utt.end) {{
+                                activeUttIndex = currentActiveUttIndex;
                             }}
                         }}
 
-                        // Only update DOM if the active utterance changed
-                        if (newActiveIndex !== currentActiveIndex) {{
-                            // Remove previous active class
-                            if (currentActiveIndex !== -1) {{
-                                const prevEl = document.getElementById('utt-' + currentActiveIndex);
-                                if (prevEl) prevEl.classList.remove('active');
-                            }}
-
-                            // Add new active class
-                            if (newActiveIndex !== -1) {{
-                                const newEl = document.getElementById('utt-' + newActiveIndex);
-                                if (newEl) {{
-                                    newEl.classList.add('active');
-                                    newEl.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                        // If not, search all (or search from current forward)
+                        if (activeUttIndex === -1) {{
+                            for (let i = 0; i < transcriptData.length; i++) {{
+                                const utt = transcriptData[i];
+                                if (timeMs >= utt.start && timeMs < utt.end) {{
+                                    activeUttIndex = i;
+                                    break;
                                 }}
                             }}
+                        }}
 
-                            currentActiveIndex = newActiveIndex;
+                        // 2. If inside an utterance, find the active word
+                        if (activeUttIndex !== -1) {{
+                            currentActiveUttIndex = activeUttIndex; // Update cache
+                            const utt = transcriptData[activeUttIndex];
+
+                            // Highlight utterance container
+                             const uttDiv = document.getElementById('utt-' + activeUttIndex);
+                             if (uttDiv && !uttDiv.classList.contains('active')) {{
+                                 // clear old active utterances
+                                 document.querySelectorAll('.utterance.active').forEach(el => el.classList.remove('active'));
+                                 uttDiv.classList.add('active');
+                             }}
+
+                            if (utt.words) {{
+                                for (let j = 0; j < utt.words.length; j++) {{
+                                    const word = utt.words[j];
+                                    if (timeMs >= word.start && timeMs < word.end) {{
+                                        const wordId = 'word-' + activeUttIndex + '-' + j;
+
+                                        if (currentActiveWordId !== wordId) {{
+                                            // Remove previous
+                                            if (currentActiveWordId) {{
+                                                const prev = document.getElementById(currentActiveWordId);
+                                                if (prev) prev.classList.remove('active');
+                                            }}
+
+                                            // Add new
+                                            const next = document.getElementById(wordId);
+                                            if (next) {{
+                                                next.classList.add('active');
+                                                // Ensure the parent utterance is visible
+                                                const parentUtt = document.getElementById('utt-' + activeUttIndex);
+                                                if (parentUtt) {{
+                                                    // Simple check: is it far off screen?
+                                                    // For now, just scroll parent if the index CHANGED
+                                                    if (currentActiveWordId === null || !currentActiveWordId.startsWith('word-' + activeUttIndex)) {{
+                                                         parentUtt.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                                                    }}
+                                                }}
+                                            }}
+                                            currentActiveWordId = wordId;
+                                        }}
+                                        break;
+                                    }}
+                                }}
+                            }}
                         }}
                     }};
                 </script>
