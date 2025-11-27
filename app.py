@@ -79,7 +79,22 @@ if st.session_state.step == "upload":
         uploaded_file = st.file_uploader("Upload Meeting Video", type=["mp4", "mov", "avi"])
 
     with col2:
-        st.info("Upload or paste bylaws for Parliamentarian Mode.")
+        info_col, help_col = st.columns([0.9, 0.1])
+        with info_col:
+            st.info("Upload or paste bylaws for Parliamentarian Mode.")
+        with help_col:
+            with st.popover("ℹ️", help="What is Parliamentarian Mode?"):
+                st.markdown(
+                    """
+                    **What is Parliamentarian Mode?**
+
+                    Think of this as your digital meeting compliance assistant! It helps ensure your meeting follows standard procedures (like Robert's Rules of Order).
+
+                    *   **Validates Motions**: It checks if motions were properly 'Seconded'. If not, it marks them as failed.
+                    *   **Checks Quorum**: If you provide your bylaws, it compares the number of speakers to your requirements to warn you if there weren't enough people for an official vote.
+                    """
+                )
+
         bylaws_file = st.file_uploader("Upload Bylaws Document", type=["txt", "pdf", "docx"])
         bylaws_paste = st.text_area("Or Paste Bylaws Text Here", height=150)
 
@@ -225,6 +240,21 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
         col1, col2 = st.columns(2)
         with col1:
             st.caption(f"**Meeting Date**: {data.get('meeting_date', 'Unknown')}")
+
+        # Extract speakers from transcript data
+        speakers_list = []
+        if "utterances" in st.session_state.raw_transcript:
+            speakers_set = set()
+            for u in st.session_state.raw_transcript["utterances"]:
+                if u.get("speaker"):
+                    speakers_set.add(u["speaker"])
+            speakers_list = sorted(list(speakers_set))
+
+        with col2:
+            if speakers_list:
+                st.caption(f"**Attendees ({len(speakers_list)})**: {', '.join(speakers_list)}")
+            else:
+                st.caption("**Attendees**: Unknown")
 
         st.subheader("🗣️ Speaking Time Distribution")
         speaking_times = processor.calculate_speaking_time(st.session_state.raw_transcript)
