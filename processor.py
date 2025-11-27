@@ -104,14 +104,14 @@ def extract_audio(video_path):
 MOCK_TRANSCRIPT_RESPONSE = {
     "text": "Speaker A: I call this meeting to order. First item is the approval of last month's minutes. Speaker B: I move to approve. Speaker A: Is there a second? Speaker C: I second. Speaker A: All in favor? [Chorus of Ayes]. Motion carries. Next, the roof repairs. We have a bid for $5,000 from Roofing Co. Speaker B: I think that's too high. I propose we get two more bids by next week. Speaker C: Agreed. I'll take that action item.",
     "utterances": [
-        {"speaker": "A", "text": "I call this meeting to order. First item is the approval of last month's minutes."},
-        {"speaker": "B", "text": "I move to approve."},
-        {"speaker": "A", "text": "Is there a second?"},
-        {"speaker": "C", "text": "I second."},
-        {"speaker": "A", "text": "All in favor? [Chorus of Ayes]. Motion carries."},
-        {"speaker": "A", "text": "Next, the roof repairs. We have a bid for $5,000 from Roofing Co."},
-        {"speaker": "B", "text": "I think that's too high. I propose we get two more bids by next week."},
-        {"speaker": "C", "text": "Agreed. I'll take that action item."}
+        {"speaker": "A", "text": "I call this meeting to order. First item is the approval of last month's minutes.", "start": 0, "end": 5000},
+        {"speaker": "B", "text": "I move to approve.", "start": 5000, "end": 7000},
+        {"speaker": "A", "text": "Is there a second?", "start": 7000, "end": 9000},
+        {"speaker": "C", "text": "I second.", "start": 9000, "end": 11000},
+        {"speaker": "A", "text": "All in favor? [Chorus of Ayes]. Motion carries.", "start": 11000, "end": 15000},
+        {"speaker": "A", "text": "Next, the roof repairs. We have a bid for $5,000 from Roofing Co.", "start": 15000, "end": 20000},
+        {"speaker": "B", "text": "I think that's too high. I propose we get two more bids by next week.", "start": 20000, "end": 25000},
+        {"speaker": "C", "text": "Agreed. I'll take that action item.", "start": 25000, "end": 28000}
     ]
 }
 

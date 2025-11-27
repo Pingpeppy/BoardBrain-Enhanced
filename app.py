@@ -4,6 +4,9 @@ import os
 import pandas as pd
 import processor
 from dotenv import load_dotenv
+import base64
+import json
+import streamlit.components.v1 as components
 
 # Load environment variables
 load_dotenv()
@@ -54,6 +57,10 @@ if "intelligence_data" not in st.session_state:
     st.session_state.intelligence_data = None
 if "formatted_transcript" not in st.session_state:
     st.session_state.formatted_transcript = ""
+if "raw_transcript" not in st.session_state:
+    st.session_state.raw_transcript = {}
+if "audio_path" not in st.session_state:
+    st.session_state.audio_path = None
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
@@ -87,6 +94,7 @@ if uploaded_file is not None:
             # 3. Transcribe
             status_container.write("📝 Transcribing audio with AssemblyAI...")
             transcript_obj = processor.transcribe_audio(audio_path, assemblyai_key)
+            st.session_state.raw_transcript = transcript_obj
 
             # 4. Format
             status_container.write("📄 Formatting transcript...")
@@ -103,8 +111,14 @@ if uploaded_file is not None:
 
             # Cleanup
             status_container.write("🧹 Cleaning up temporary files...")
-            os.remove(video_path)
-            os.remove(audio_path)
+            if os.path.exists(video_path):
+                os.remove(video_path)
+
+            # Store audio path for playback - clean up previous if exists
+            if st.session_state.audio_path and os.path.exists(st.session_state.audio_path) and st.session_state.audio_path != audio_path:
+                os.remove(st.session_state.audio_path)
+
+            st.session_state.audio_path = audio_path
 
             status_container.update(label="Processing Complete!", state="complete", expanded=False)
             st.session_state.processing_complete = True
@@ -182,7 +196,171 @@ if st.session_state.processing_complete and st.session_state.intelligence_data:
             st.write("No action items detected.")
 
     with tab2:
-        st.text_area("Transcript", value=st.session_state.formatted_transcript, height=600)
+        # Interactive Transcript
+        if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+
+            # Read audio file as base64
+            with open(st.session_state.audio_path, "rb") as f:
+                audio_bytes = f.read()
+            audio_base64 = base64.b64encode(audio_bytes).decode()
+            audio_data_uri = f"data:audio/mp3;base64,{audio_base64}"
+
+            # Prepare Transcript Data for JS
+            transcript_data = st.session_state.raw_transcript.get("utterances", [])
+            # Fallback if no utterances (e.g. no speaker labels)
+            if not transcript_data and "text" in st.session_state.raw_transcript:
+                # Create a single dummy utterance for the whole text
+                transcript_data = [{"speaker": "Unknown", "text": st.session_state.raw_transcript["text"], "start": 0, "end": 9999999}]
+
+            transcript_json = json.dumps(transcript_data)
+
+            # HTML/JS/CSS Component
+            html_code = f"""
+            <html>
+            <head>
+                <style>
+                    body {{
+                        font-family: sans-serif;
+                        color: #31333F;
+                    }}
+                    .audio-container {{
+                        position: sticky;
+                        top: 0;
+                        background: white;
+                        padding: 10px 0;
+                        border-bottom: 1px solid #ddd;
+                        z-index: 100;
+                    }}
+                    audio {{
+                        width: 100%;
+                    }}
+                    .transcript-container {{
+                        max-height: 600px;
+                        overflow-y: auto;
+                        padding: 20px 0;
+                    }}
+                    .utterance {{
+                        padding: 10px;
+                        border-radius: 5px;
+                        margin-bottom: 10px;
+                        cursor: pointer;
+                        transition: background-color 0.2s;
+                    }}
+                    .utterance:hover {{
+                        background-color: #f0f2f6;
+                    }}
+                    .utterance.active {{
+                        background-color: #e6f3ff; /* Highlight color */
+                        border-left: 4px solid #2e7af1;
+                    }}
+                    .speaker-badge {{
+                        display: inline-block;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        font-size: 0.8em;
+                        margin-bottom: 4px;
+                        color: white;
+                        background-color: #555;
+                    }}
+                    .speaker-A {{ background-color: #ff4b4b; }}
+                    .speaker-B {{ background-color: #2e7af1; }}
+                    .speaker-C {{ background-color: #2bb02b; }}
+                    .speaker-D {{ background-color: #ffa500; }}
+                </style>
+            </head>
+            <body>
+                <div class="audio-container">
+                    <audio id="player" controls>
+                        <source src="{audio_data_uri}" type="audio/mp3">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+                <div class="transcript-container" id="transcript">
+                    <!-- Content injected via JS -->
+                </div>
+
+                <script>
+                    const transcriptData = {transcript_json};
+                    const transcriptContainer = document.getElementById('transcript');
+                    const player = document.getElementById('player');
+
+                    // Render Transcript
+                    transcriptData.forEach((utt, index) => {{
+                        const div = document.createElement('div');
+                        div.className = 'utterance';
+                        div.id = 'utt-' + index;
+                        div.dataset.start = utt.start; // ms
+                        div.dataset.end = utt.end;     // ms
+
+                        // Speaker Badge
+                        const speakerBadge = document.createElement('span');
+                        speakerBadge.className = 'speaker-badge speaker-' + utt.speaker;
+                        speakerBadge.innerText = 'Speaker ' + utt.speaker;
+                        div.appendChild(speakerBadge);
+
+                        // Line break
+                        div.appendChild(document.createElement('br'));
+
+                        // Text
+                        const textSpan = document.createElement('span');
+                        textSpan.innerText = utt.text;
+                        div.appendChild(textSpan);
+
+                        // Click to seek
+                        div.onclick = () => {{
+                            player.currentTime = utt.start / 1000;
+                            player.play();
+                        }};
+
+                        transcriptContainer.appendChild(div);
+                    }});
+
+                    // Highlight active utterance
+                    let currentActiveIndex = -1;
+
+                    player.ontimeupdate = () => {{
+                        const timeMs = player.currentTime * 1000;
+
+                        // Find active utterance index
+                        let newActiveIndex = -1;
+                        for (let i = 0; i < transcriptData.length; i++) {{
+                            const utt = transcriptData[i];
+                            if (timeMs >= utt.start && timeMs < utt.end) {{
+                                newActiveIndex = i;
+                                break;
+                            }}
+                        }}
+
+                        // Only update DOM if the active utterance changed
+                        if (newActiveIndex !== currentActiveIndex) {{
+                            // Remove previous active class
+                            if (currentActiveIndex !== -1) {{
+                                const prevEl = document.getElementById('utt-' + currentActiveIndex);
+                                if (prevEl) prevEl.classList.remove('active');
+                            }}
+
+                            // Add new active class
+                            if (newActiveIndex !== -1) {{
+                                const newEl = document.getElementById('utt-' + newActiveIndex);
+                                if (newEl) {{
+                                    newEl.classList.add('active');
+                                    newEl.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                                }}
+                            }}
+
+                            currentActiveIndex = newActiveIndex;
+                        }}
+                    }};
+                </script>
+            </body>
+            </html>
+            """
+
+            components.html(html_code, height=600, scrolling=True)
+
+        else:
+            st.info("Audio file not available for playback. Please process a video.")
 
     with tab3:
         st.subheader("Chat with your Meeting")
