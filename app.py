@@ -52,6 +52,8 @@ st.title("🧠 BoardBrain")
 st.markdown("### Turn HOA Board Videos into Actionable Data")
 
 # Session State Initialization
+if "step" not in st.session_state:
+    st.session_state.step = "upload" # 'upload' or 'results'
 if "processing_complete" not in st.session_state:
     st.session_state.processing_complete = False
 if "intelligence_data" not in st.session_state:
@@ -65,77 +67,121 @@ if "audio_path" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# File Uploader
-uploaded_file = st.file_uploader("Upload Board Meeting Video", type=["mp4", "mov", "avi"])
+# --- Step 1: Upload & Process ---
+if st.session_state.step == "upload":
 
-if uploaded_file is not None:
-    # --- Process Button ---
-    if st.button("Process Meeting", type="primary"):
+    st.markdown("#### Step 1: Upload Materials")
 
-        # Validation
-        if not assemblyai_key:
-            st.warning("No AssemblyAI Key provided. Using Mock Mode for Transcription.")
-        if not openai_key:
-            st.warning("No OpenAI Key provided. Using Mock Mode for Intelligence.")
+    col1, col2 = st.columns(2)
 
-        status_container = st.status("Processing Meeting...", expanded=True)
+    with col1:
+        st.info("Upload your board meeting video here.")
+        uploaded_file = st.file_uploader("Upload Meeting Video", type=["mp4", "mov", "avi"])
 
-        try:
-            # 1. Save File Temporarily
-            status_container.write("📂 Saving uploaded file...")
-            tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") # Or infer extension
-            tfile.write(uploaded_file.read())
-            video_path = tfile.name
-            tfile.close()
+    with col2:
+        st.info("Upload or paste bylaws for Parliamentarian Mode.")
+        bylaws_file = st.file_uploader("Upload Bylaws Document", type=["txt", "pdf", "docx"])
+        bylaws_paste = st.text_area("Or Paste Bylaws Text Here", height=150)
 
-            # 2. Extract Audio
-            status_container.write("🔊 Extracting audio from video...")
-            audio_path = processor.extract_audio(video_path)
+    st.markdown("---")
 
-            # 3. Transcribe
-            status_container.write("📝 Transcribing audio with AssemblyAI...")
-            transcript_obj = processor.transcribe_audio(audio_path, assemblyai_key)
-            st.session_state.raw_transcript = transcript_obj
+    if uploaded_file is not None:
+        if st.button("Process Meeting", type="primary", use_container_width=True):
 
-            # 4. Format
-            status_container.write("📄 Formatting transcript...")
-            formatted_text = processor.format_transcript(transcript_obj)
-            st.session_state.formatted_transcript = formatted_text
+            # Validation
+            if not assemblyai_key:
+                st.warning("No AssemblyAI Key provided. Using Mock Mode for Transcription.")
+            if not openai_key:
+                st.warning("No OpenAI Key provided. Using Mock Mode for Intelligence.")
 
-            # 5. Extract Intelligence
-            status_container.write("🧠 Extracting insights with GPT-4o...")
-            intelligence = processor.extract_intelligence(formatted_text, openai_key)
-            st.session_state.intelligence_data = intelligence
+            status_container = st.status("Processing Meeting...", expanded=True)
 
-            # Reset chat history on new process
-            st.session_state.chat_history = []
+            try:
+                # 1. Save File Temporarily
+                status_container.write("📂 Saving uploaded file...")
+                tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") # Or infer extension
+                tfile.write(uploaded_file.read())
+                video_path = tfile.name
+                tfile.close()
 
-            # Cleanup
-            status_container.write("🧹 Cleaning up temporary files...")
-            if os.path.exists(video_path):
-                os.remove(video_path)
+                # 2. Extract Audio
+                status_container.write("🔊 Extracting audio from video...")
+                audio_path = processor.extract_audio(video_path)
 
-            # Store audio path for playback - clean up previous if exists
-            if st.session_state.audio_path and os.path.exists(st.session_state.audio_path) and st.session_state.audio_path != audio_path:
-                os.remove(st.session_state.audio_path)
+                # 3. Transcribe
+                status_container.write("📝 Transcribing audio with AssemblyAI...")
+                transcript_obj = processor.transcribe_audio(audio_path, assemblyai_key)
+                st.session_state.raw_transcript = transcript_obj
 
-            st.session_state.audio_path = audio_path
+                # 4. Format
+                status_container.write("📄 Formatting transcript...")
+                formatted_text = processor.format_transcript(transcript_obj)
+                st.session_state.formatted_transcript = formatted_text
 
-            status_container.update(label="Processing Complete!", state="complete", expanded=False)
-            st.session_state.processing_complete = True
+                # 5. Extract Intelligence
+                status_container.write("🧠 Extracting insights with GPT-4o...")
 
-        except Exception as e:
-            status_container.update(label="Error Occurred", state="error")
-            st.error(f"An error occurred during processing: {str(e)}")
-            # Attempt cleanup even on error
-            if 'video_path' in locals() and os.path.exists(video_path):
-                os.remove(video_path)
-            if 'audio_path' in locals() and os.path.exists(audio_path):
-                os.remove(audio_path)
+                # Prepare Bylaws Text
+                bylaws_text = ""
+                if bylaws_file:
+                    bylaws_text += processor.read_file_content(bylaws_file, bylaws_file.name) + "\n"
+                if bylaws_paste:
+                    bylaws_text += bylaws_paste
 
-# --- Display Results ---
+                # Count Speakers
+                speakers_count = 0
+                if "utterances" in transcript_obj:
+                    speakers = set(u.get("speaker") for u in transcript_obj["utterances"])
+                    speakers_count = len(speakers)
 
-if st.session_state.processing_complete and st.session_state.intelligence_data:
+                intelligence = processor.extract_intelligence(formatted_text, openai_key, bylaws_text=bylaws_text, speakers_count=speakers_count)
+                st.session_state.intelligence_data = intelligence
+
+                # Reset chat history on new process
+                st.session_state.chat_history = []
+
+                # Cleanup
+                status_container.write("🧹 Cleaning up temporary files...")
+                if os.path.exists(video_path):
+                    os.remove(video_path)
+
+                # Store audio path for playback - clean up previous if exists
+                if st.session_state.audio_path and os.path.exists(st.session_state.audio_path) and st.session_state.audio_path != audio_path:
+                    os.remove(st.session_state.audio_path)
+
+                st.session_state.audio_path = audio_path
+                st.session_state.processing_complete = True
+
+                # TRANSITION TO RESULTS
+                status_container.update(label="Processing Complete!", state="complete", expanded=False)
+                st.session_state.step = "results"
+                st.rerun()
+
+            except Exception as e:
+                status_container.update(label="Error Occurred", state="error")
+                st.error(f"An error occurred during processing: {str(e)}")
+                # Attempt cleanup even on error
+                if 'video_path' in locals() and os.path.exists(video_path):
+                    os.remove(video_path)
+                if 'audio_path' in locals() and os.path.exists(audio_path):
+                    os.remove(audio_path)
+    else:
+        st.warning("Please upload a video file to proceed.")
+
+# --- Step 2: Display Results ---
+elif st.session_state.step == "results" and st.session_state.processing_complete:
+
+    # Header with Back Button
+    col_head_1, col_head_2 = st.columns([4, 1])
+    with col_head_1:
+        st.success("Meeting Processed Successfully!")
+    with col_head_2:
+        if st.button("🔄 Start Over", type="secondary"):
+            st.session_state.step = "upload"
+            st.session_state.processing_complete = False
+            st.session_state.intelligence_data = None
+            st.rerun()
+
     st.markdown("---")
 
     data = st.session_state.intelligence_data
