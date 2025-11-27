@@ -3,6 +3,10 @@ import tempfile
 import os
 import pandas as pd
 import processor
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # --- Page Config ---
 st.set_page_config(
@@ -13,12 +17,30 @@ st.set_page_config(
 
 # --- Sidebar ---
 st.sidebar.title("⚙️ Settings")
-assemblyai_key = st.sidebar.text_input("AssemblyAI API Key", type="password", help="Leave blank or type 'dummy' to use Mock Mode.")
-openai_key = st.sidebar.text_input("OpenAI API Key", type="password", help="Leave blank or type 'dummy' to use Mock Mode.")
+
+# Mock Mode Toggle
+use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
+
+# Pre-fill keys from .env if available
+default_assembly_key = os.getenv("ASSEMBLYAI_API_KEY", "")
+default_openai_key = os.getenv("OPENAI_API_KEY", "")
+
+# If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
+# However, for UI clarity:
+if use_mock_mode:
+    st.sidebar.warning("Running in Mock Mode. API keys will be ignored.")
+    assemblyai_key = "dummy"
+    openai_key = "dummy"
+    # Show disabled inputs just for visual confirmation of what's happening
+    st.sidebar.text_input("AssemblyAI API Key", value="dummy", disabled=True)
+    st.sidebar.text_input("OpenAI API Key", value="dummy", disabled=True)
+else:
+    assemblyai_key = st.sidebar.text_input("AssemblyAI API Key", value=default_assembly_key, type="password")
+    openai_key = st.sidebar.text_input("OpenAI API Key", value=default_openai_key, type="password")
 
 st.sidebar.markdown("---")
 st.sidebar.info(
-    "**Note**: If keys are missing, the app will run in 'Mock Mode' with sample data."
+    "**Note**: If keys are missing, the app will automatically fall back to 'Mock Mode'."
 )
 
 # --- Main Interface ---
