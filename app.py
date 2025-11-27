@@ -3,14 +3,10 @@ import tempfile
 import os
 import pandas as pd
 import processor
-from dotenv import load_dotenv
 import base64
 import json
 import streamlit.components.v1 as components
 import altair as alt
-
-# Load environment variables
-load_dotenv()
 
 # --- Page Config ---
 st.set_page_config(
@@ -25,9 +21,9 @@ st.sidebar.title("⚙️ Settings")
 # Mock Mode Toggle
 use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
 
-# Pre-fill keys from .env if available
-default_assembly_key = os.getenv("ASSEMBLYAI_API_KEY", "")
-default_openai_key = os.getenv("OPENAI_API_KEY", "")
+# Pre-fill keys from st.secrets if available (fallback to manual entry)
+default_assembly_key = st.secrets.get("ASSEMBLYAI_API_KEY", "")
+default_openai_key = st.secrets.get("OPENAI_API_KEY", "")
 
 # If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
 # However, for UI clarity:
@@ -41,6 +37,10 @@ if use_mock_mode:
 else:
     assemblyai_key = st.sidebar.text_input("AssemblyAI API Key", value=default_assembly_key, type="password")
     openai_key = st.sidebar.text_input("OpenAI API Key", value=default_openai_key, type="password")
+
+    # Warning if keys are missing
+    if not assemblyai_key or not openai_key:
+        st.sidebar.warning("⚠️ API Keys are missing. Please configure secrets or enter them above.")
 
 st.sidebar.markdown("---")
 st.sidebar.info(
