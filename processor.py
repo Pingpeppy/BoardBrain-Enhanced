@@ -319,6 +319,30 @@ def format_transcript(transcript_obj):
         # Fallback if no speaker labels
         return transcript_obj.get("text", "")
 
+def calculate_speaking_time(transcript_obj):
+    """
+    Calculates the total speaking time for each speaker.
+    Returns a dictionary mapping speaker names to total milliseconds spoken.
+    """
+    speaking_times = {}
+
+    if "utterances" in transcript_obj and transcript_obj["utterances"]:
+        for turn in transcript_obj["utterances"]:
+            speaker = turn.get("speaker", "Unknown")
+            start = turn.get("start", 0)
+            end = turn.get("end", 0)
+            duration = end - start
+
+            if duration < 0:
+                duration = 0
+
+            if speaker in speaking_times:
+                speaking_times[speaker] += duration
+            else:
+                speaking_times[speaker] = duration
+
+    return speaking_times
+
 # --- Intelligence Extraction (OpenAI) ---
 
 MOCK_INTELLIGENCE_RESPONSE = {
