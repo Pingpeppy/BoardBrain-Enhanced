@@ -64,6 +64,8 @@ if "raw_transcript" not in st.session_state:
     st.session_state.raw_transcript = {}
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
+if "bylaws_text" not in st.session_state:
+    st.session_state.bylaws_text = ""
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
@@ -142,6 +144,9 @@ if st.session_state.step == "upload":
                     bylaws_text += processor.read_file_content(bylaws_file, bylaws_file.name) + "\n"
                 if bylaws_paste:
                     bylaws_text += bylaws_paste
+
+                # Store bylaws text in session state for re-processing later
+                st.session_state.bylaws_text = bylaws_text
 
                 # Count Speakers
                 speakers_count = 0
@@ -296,6 +301,62 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             st.write("No action items detected.")
 
     with tab2:
+        # --- Edit Speaker Names ---
+        if "utterances" in st.session_state.raw_transcript and st.session_state.raw_transcript["utterances"]:
+            with st.expander("✏️ Edit Speaker Names"):
+                st.write("Rename speakers below. This will update the transcript and re-analyze the meeting intelligence.")
+
+                # Get unique speakers
+                unique_speakers = sorted(list(set(u["speaker"] for u in st.session_state.raw_transcript["utterances"])))
+
+                with st.form("speaker_rename_form"):
+                    new_names = {}
+                    cols = st.columns(3)
+                    for i, speaker in enumerate(unique_speakers):
+                        with cols[i % 3]:
+                            new_names[speaker] = st.text_input(f"Rename '{speaker}'", value=speaker)
+
+                    if st.form_submit_button("Save Changes & Reprocess"):
+                        # Check if any changes were made
+                        changes_made = any(new_names[s] != s for s in unique_speakers)
+
+                        if changes_made:
+                            status_container = st.status("Updating Speakers...", expanded=True)
+                            try:
+                                # 1. Update Utterances
+                                status_container.write("🔄 Updating transcript data...")
+                                for utterance in st.session_state.raw_transcript["utterances"]:
+                                    old_name = utterance["speaker"]
+                                    if old_name in new_names:
+                                        utterance["speaker"] = new_names[old_name]
+
+                                # 2. Re-format Transcript
+                                status_container.write("📄 Re-formatting transcript...")
+                                formatted_text = processor.format_transcript(st.session_state.raw_transcript)
+                                st.session_state.formatted_transcript = formatted_text
+
+                                # 3. Re-extract Intelligence
+                                status_container.write("🧠 Re-analyzing meeting intelligence...")
+                                # Recalculate speaker count
+                                speakers_count = len(set(new_names.values()))
+
+                                intelligence = processor.extract_intelligence(
+                                    formatted_text,
+                                    openai_key,
+                                    bylaws_text=st.session_state.bylaws_text,
+                                    speakers_count=speakers_count
+                                )
+                                st.session_state.intelligence_data = intelligence
+
+                                status_container.update(label="Update Complete!", state="complete", expanded=False)
+                                st.rerun()
+
+                            except Exception as e:
+                                status_container.update(label="Error Occurred", state="error")
+                                st.error(f"An error occurred during update: {str(e)}")
+                        else:
+                            st.info("No changes detected.")
+
         # Interactive Transcript
         if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
 
