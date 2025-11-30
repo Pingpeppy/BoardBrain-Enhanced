@@ -135,6 +135,28 @@ if st.session_state.step == "upload":
                 formatted_text = processor.format_transcript(transcript_obj)
                 st.session_state.formatted_transcript = formatted_text
 
+                # --- Auto-Suggest Speaker Names (New Step) ---
+                if "utterances" in transcript_obj:
+                    status_container.write("🕵️ Identifying speakers...")
+                    suggestions = processor.suggest_speaker_names(formatted_text, openai_key)
+
+                    if suggestions:
+                        # Auto-update transcript
+                        for utterance in transcript_obj["utterances"]:
+                            old_name = utterance["speaker"]
+                            if old_name in suggestions:
+                                utterance["speaker"] = suggestions[old_name]
+
+                        # Re-format with new names
+                        formatted_text = processor.format_transcript(transcript_obj)
+                        st.session_state.formatted_transcript = formatted_text
+                        st.session_state.raw_transcript = transcript_obj # Save updated raw
+
+                        # Store for UI
+                        st.session_state.speaker_suggestions = suggestions
+                        status_container.write(f"✅ Auto-identified {len(suggestions)} speakers!")
+                # ---------------------------------------------
+
                 # 5. Extract Intelligence
                 status_container.write("🧠 Extracting insights with GPT-4o...")
 
@@ -236,410 +258,456 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
 
-    tab1, tab2, tab3 = st.tabs(["📊 Insights", "📜 Full Transcript", "💬 Chat with Meeting"])
+    # --- Split Screen Layout: Main Content | Chat ---
+    col_main, col_chat = st.columns([7, 3])
 
-    with tab1:
-        st.subheader("Executive Summary")
-        st.info(data.get("summary", "No summary available."))
+    with col_main:
+        tab1, tab2 = st.tabs(["📊 Insights", "📜 Full Transcript"])
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.caption(f"**Meeting Date**: {data.get('meeting_date', 'Unknown')}")
+        with tab1:
+            st.subheader("Executive Summary")
+            st.info(data.get("summary", "No summary available."))
 
-        # Extract speakers from transcript data
-        speakers_list = []
-        if "utterances" in st.session_state.raw_transcript:
-            speakers_set = set()
-            for u in st.session_state.raw_transcript["utterances"]:
-                if u.get("speaker"):
-                    speakers_set.add(u["speaker"])
-            speakers_list = sorted(list(speakers_set))
+            col1, col2 = st.columns(2)
+            with col1:
+                st.caption(f"**Meeting Date**: {data.get('meeting_date', 'Unknown')}")
 
-        with col2:
-            if speakers_list:
-                st.caption(f"**Attendees ({len(speakers_list)})**: {', '.join(speakers_list)}")
+            # Extract speakers from transcript data
+            speakers_list = []
+            if "utterances" in st.session_state.raw_transcript:
+                speakers_set = set()
+                for u in st.session_state.raw_transcript["utterances"]:
+                    if u.get("speaker"):
+                        speakers_set.add(u["speaker"])
+                speakers_list = sorted(list(speakers_set))
+
+            with col2:
+                if speakers_list:
+                    st.caption(f"**Attendees ({len(speakers_list)})**: {', '.join(speakers_list)}")
+                else:
+                    st.caption("**Attendees**: Unknown")
+
+            st.subheader("🗣️ Speaking Time Distribution")
+            speaking_times = processor.calculate_speaking_time(st.session_state.raw_transcript)
+            if speaking_times:
+                df_speaking = pd.DataFrame(list(speaking_times.items()), columns=['Speaker', 'Time (ms)'])
+                df_speaking['Time (s)'] = df_speaking['Time (ms)'] / 1000
+
+                base = alt.Chart(df_speaking).encode(
+                    theta=alt.Theta("Time (s)", stack=True)
+                )
+                pie = base.mark_arc(outerRadius=120).encode(
+                    color=alt.Color("Speaker"),
+                    order=alt.Order("Time (s)", sort="descending"),
+                    tooltip=["Speaker", alt.Tooltip("Time (s)", format=".1f")]
+                )
+                text = base.mark_text(radius=140).encode(
+                    text=alt.Text("Time (s)", format=".1f"),
+                    order=alt.Order("Time (s)", sort="descending"),
+                    color=alt.value("black")
+                )
+                st.altair_chart(pie + text, use_container_width=True)
             else:
-                st.caption("**Attendees**: Unknown")
+                st.info("No speaking time data available.")
 
-        st.subheader("🗣️ Speaking Time Distribution")
-        speaking_times = processor.calculate_speaking_time(st.session_state.raw_transcript)
-        if speaking_times:
-            df_speaking = pd.DataFrame(list(speaking_times.items()), columns=['Speaker', 'Time (ms)'])
-            df_speaking['Time (s)'] = df_speaking['Time (ms)'] / 1000
+            st.subheader("📋 Motions")
+            motions = data.get("motions", [])
+            if motions:
+                df_motions = pd.DataFrame(motions)
+                st.dataframe(df_motions, use_container_width=True)
+            else:
+                st.write("No motions detected.")
 
-            base = alt.Chart(df_speaking).encode(
-                theta=alt.Theta("Time (s)", stack=True)
-            )
-            pie = base.mark_arc(outerRadius=120).encode(
-                color=alt.Color("Speaker"),
-                order=alt.Order("Time (s)", sort="descending"),
-                tooltip=["Speaker", alt.Tooltip("Time (s)", format=".1f")]
-            )
-            text = base.mark_text(radius=140).encode(
-                text=alt.Text("Time (s)", format=".1f"),
-                order=alt.Order("Time (s)", sort="descending"),
-                color=alt.value("black")
-            )
-            st.altair_chart(pie + text, use_container_width=True)
-        else:
-            st.info("No speaking time data available.")
+            st.subheader("✅ Action Items")
+            actions = data.get("action_items", [])
+            if actions:
+                df_actions = pd.DataFrame(actions)
+                st.dataframe(df_actions, use_container_width=True)
+            else:
+                st.write("No action items detected.")
 
-        st.subheader("📋 Motions")
-        motions = data.get("motions", [])
-        if motions:
-            df_motions = pd.DataFrame(motions)
-            st.dataframe(df_motions, use_container_width=True)
-        else:
-            st.write("No motions detected.")
+        with tab2:
+            # --- Edit Speaker Names ---
+            if "utterances" in st.session_state.raw_transcript and st.session_state.raw_transcript["utterances"]:
+                with st.expander("✏️ Edit Speaker Names"):
+                    st.write("Rename speakers below. This will update the transcript and re-analyze the meeting intelligence.")
 
-        st.subheader("✅ Action Items")
-        actions = data.get("action_items", [])
-        if actions:
-            df_actions = pd.DataFrame(actions)
-            st.dataframe(df_actions, use_container_width=True)
-        else:
-            st.write("No action items detected.")
+                    # Get unique speakers
+                    unique_speakers = sorted(list(set(u["speaker"] for u in st.session_state.raw_transcript["utterances"])))
 
-    with tab2:
-        # --- Edit Speaker Names ---
-        if "utterances" in st.session_state.raw_transcript and st.session_state.raw_transcript["utterances"]:
-            with st.expander("✏️ Edit Speaker Names"):
-                st.write("Rename speakers below. This will update the transcript and re-analyze the meeting intelligence.")
+                    # Auto-Suggest Button
+                    if st.button("✨ Auto-Suggest Names", type="primary", help="Analyze transcript to infer speaker names"):
+                        with st.spinner("Analyzing transcript for names..."):
+                            suggestions = processor.suggest_speaker_names(st.session_state.formatted_transcript, openai_key)
 
-                # Get unique speakers
-                unique_speakers = sorted(list(set(u["speaker"] for u in st.session_state.raw_transcript["utterances"])))
+                            if suggestions:
+                                st.success(f"Found {len(suggestions)} potential names!")
+                                # Store suggestions in session state to pre-fill the form
+                                st.session_state.speaker_suggestions = suggestions
+                            else:
+                                st.warning("No names could be inferred from the context.")
+                                st.session_state.speaker_suggestions = {}
 
-                with st.form("speaker_rename_form"):
-                    new_names = {}
-                    cols = st.columns(3)
-                    for i, speaker in enumerate(unique_speakers):
-                        with cols[i % 3]:
-                            new_names[speaker] = st.text_input(f"Rename '{speaker}'", value=speaker)
+                    # Ensure suggestions exist in session state
+                    if "speaker_suggestions" not in st.session_state:
+                        st.session_state.speaker_suggestions = {}
 
-                    if st.form_submit_button("Save Changes & Reprocess"):
-                        # Check if any changes were made
-                        changes_made = any(new_names[s] != s for s in unique_speakers)
+                    with st.form("speaker_rename_form"):
+                        new_names = {}
+                        cols = st.columns(3)
+                        for i, speaker in enumerate(unique_speakers):
+                            # Default value: Check suggestions first, then fall back to current name
+                            suggested_name = st.session_state.speaker_suggestions.get(speaker, speaker)
 
-                        if changes_made:
-                            status_container = st.status("Updating Speakers...", expanded=True)
-                            try:
-                                # 1. Update Utterances
-                                status_container.write("🔄 Updating transcript data...")
-                                for utterance in st.session_state.raw_transcript["utterances"]:
-                                    old_name = utterance["speaker"]
-                                    if old_name in new_names:
-                                        utterance["speaker"] = new_names[old_name]
-
-                                # 2. Re-format Transcript
-                                status_container.write("📄 Re-formatting transcript...")
-                                formatted_text = processor.format_transcript(st.session_state.raw_transcript)
-                                st.session_state.formatted_transcript = formatted_text
-
-                                # 3. Re-extract Intelligence
-                                status_container.write("🧠 Re-analyzing meeting intelligence...")
-                                # Recalculate speaker count
-                                speakers_count = len(set(new_names.values()))
-
-                                intelligence = processor.extract_intelligence(
-                                    formatted_text,
-                                    openai_key,
-                                    bylaws_text=st.session_state.bylaws_text,
-                                    speakers_count=speakers_count
+                            with cols[i % 3]:
+                                new_names[speaker] = st.text_input(
+                                    f"Rename '{speaker}'",
+                                    value=suggested_name,
+                                    help=f"Suggested: {suggested_name}" if speaker in st.session_state.speaker_suggestions else None
                                 )
-                                st.session_state.intelligence_data = intelligence
 
-                                status_container.update(label="Update Complete!", state="complete", expanded=False)
-                                st.rerun()
+                        if st.form_submit_button("Save Changes & Reprocess"):
+                            # Check if any changes were made
+                            changes_made = any(new_names[s] != s for s in unique_speakers)
 
-                            except Exception as e:
-                                status_container.update(label="Error Occurred", state="error")
-                                st.error(f"An error occurred during update: {str(e)}")
-                        else:
-                            st.info("No changes detected.")
+                            if changes_made:
+                                status_container = st.status("Updating Speakers...", expanded=True)
+                                try:
+                                    # 1. Update Utterances
+                                    status_container.write("🔄 Updating transcript data...")
+                                    for utterance in st.session_state.raw_transcript["utterances"]:
+                                        old_name = utterance["speaker"]
+                                        if old_name in new_names:
+                                            utterance["speaker"] = new_names[old_name]
 
-        # Interactive Transcript
-        if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+                                    # 2. Re-format Transcript
+                                    status_container.write("📄 Re-formatting transcript...")
+                                    formatted_text = processor.format_transcript(st.session_state.raw_transcript)
+                                    st.session_state.formatted_transcript = formatted_text
 
-            # Read audio file as base64
-            with open(st.session_state.audio_path, "rb") as f:
-                audio_bytes = f.read()
-            audio_base64 = base64.b64encode(audio_bytes).decode()
-            audio_data_uri = f"data:audio/mp3;base64,{audio_base64}"
+                                    # 3. Re-extract Intelligence
+                                    status_container.write("🧠 Re-analyzing meeting intelligence...")
+                                    # Recalculate speaker count
+                                    speakers_count = len(set(new_names.values()))
 
-            # Prepare Transcript Data for JS
-            transcript_data = st.session_state.raw_transcript.get("utterances", [])
-            # Fallback if no utterances (e.g. no speaker labels)
-            if not transcript_data and "text" in st.session_state.raw_transcript:
-                # Create a single dummy utterance for the whole text
-                transcript_data = [{"speaker": "Unknown", "text": st.session_state.raw_transcript["text"], "start": 0, "end": 9999999}]
+                                    intelligence = processor.extract_intelligence(
+                                        formatted_text,
+                                        openai_key,
+                                        bylaws_text=st.session_state.bylaws_text,
+                                        speakers_count=speakers_count
+                                    )
+                                    st.session_state.intelligence_data = intelligence
 
-            # Ensure 'words' exist for word-by-word highlighting
-            for utt in transcript_data:
-                if "words" not in utt:
-                    # Create dummy words by splitting text
-                    words = utt.get("text", "").split(" ")
-                    utt["words"] = []
-                    duration = utt.get("end", 0) - utt.get("start", 0)
-                    if duration < 0: duration = 1000
-                    word_duration = duration / max(len(words), 1)
-                    current_time = utt.get("start", 0)
+                                    # Clear suggestions after successful save
+                                    st.session_state.speaker_suggestions = {}
 
-                    for w in words:
-                        utt["words"].append({
-                            "text": w,
-                            "start": current_time,
-                            "end": current_time + word_duration
-                        })
-                        current_time += word_duration
+                                    status_container.update(label="Update Complete!", state="complete", expanded=False)
+                                    st.rerun()
 
-            transcript_json = json.dumps(transcript_data)
+                                except Exception as e:
+                                    status_container.update(label="Error Occurred", state="error")
+                                    st.error(f"An error occurred during update: {str(e)}")
+                            else:
+                                st.info("No changes detected.")
 
-            # HTML/JS/CSS Component
-            html_code = f"""
-            <html>
-            <head>
-                <style>
-                    body {{
-                        font-family: sans-serif;
-                        color: #31333F;
-                    }}
-                    .audio-container {{
-                        position: sticky;
-                        top: 0;
-                        background: white;
-                        padding: 10px 0;
-                        border-bottom: 1px solid #ddd;
-                        z-index: 100;
-                    }}
-                    audio {{
-                        width: 100%;
-                    }}
-                    .transcript-container {{
-                        max-height: 600px;
-                        overflow-y: auto;
-                        padding: 20px 0;
-                    }}
-                    .utterance {{
-                        padding: 10px;
-                        border-radius: 5px;
-                        margin-bottom: 10px;
-                        transition: background-color 0.2s;
-                    }}
-                    .utterance:hover {{
-                        background-color: #f0f2f6;
-                    }}
-                    .utterance.active {{
-                        border-left: 4px solid #2e7af1;
-                    }}
-                    .speaker-badge {{
-                        display: inline-block;
-                        padding: 2px 6px;
-                        border-radius: 4px;
-                        font-weight: bold;
-                        font-size: 0.8em;
-                        margin-bottom: 4px;
-                        color: white;
-                        background-color: #555;
-                    }}
-                    .speaker-Takara {{ background-color: #ff4b4b; }}
-                    .speaker-Jennifer {{ background-color: #2e7af1; }}
-                    .speaker-Bill {{ background-color: #2bb02b; }}
-                    .speaker-A {{ background-color: #ff4b4b; }}
-                    .speaker-B {{ background-color: #2e7af1; }}
-                    .speaker-C {{ background-color: #2bb02b; }}
+            # Interactive Transcript
+            if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
 
-                    .word {{
-                        cursor: pointer;
-                        padding: 1px 2px;
-                        border-radius: 3px;
-                        transition: background-color 0.1s;
-                    }}
-                    .word:hover {{
-                        background-color: #e0e0e0;
-                    }}
-                    .word.active {{
-                        background-color: #8da4ef;
-                        color: white;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="audio-container">
-                    <audio id="player" controls>
-                        <source src="{audio_data_uri}" type="audio/mp3">
-                        Your browser does not support the audio element.
-                    </audio>
-                </div>
-                <div class="transcript-container" id="transcript">
-                    <!-- Content injected via JS -->
-                </div>
+                # Read audio file as base64
+                with open(st.session_state.audio_path, "rb") as f:
+                    audio_bytes = f.read()
+                audio_base64 = base64.b64encode(audio_bytes).decode()
+                audio_data_uri = f"data:audio/mp3;base64,{audio_base64}"
 
-                <script>
-                    const transcriptData = {transcript_json};
-                    const transcriptContainer = document.getElementById('transcript');
-                    const player = document.getElementById('player');
+                # Prepare Transcript Data for JS
+                transcript_data = st.session_state.raw_transcript.get("utterances", [])
+                # Fallback if no utterances (e.g. no speaker labels)
+                if not transcript_data and "text" in st.session_state.raw_transcript:
+                    # Create a single dummy utterance for the whole text
+                    transcript_data = [{"speaker": "Unknown", "text": st.session_state.raw_transcript["text"], "start": 0, "end": 9999999}]
 
-                    // Render Transcript
-                    transcriptData.forEach((utt, index) => {{
-                        const div = document.createElement('div');
-                        div.className = 'utterance';
-                        div.id = 'utt-' + index;
-                        div.dataset.start = utt.start; // ms
-                        div.dataset.end = utt.end;     // ms
+                # Ensure 'words' exist for word-by-word highlighting
+                for utt in transcript_data:
+                    if "words" not in utt:
+                        # Create dummy words by splitting text
+                        words = utt.get("text", "").split(" ")
+                        utt["words"] = []
+                        duration = utt.get("end", 0) - utt.get("start", 0)
+                        if duration < 0: duration = 1000
+                        word_duration = duration / max(len(words), 1)
+                        current_time = utt.get("start", 0)
 
-                        // Speaker Badge
-                        const speakerBadge = document.createElement('span');
-                        // Use first name for class color mapping
-                        const firstName = utt.speaker.split(' ')[0];
-                        speakerBadge.className = 'speaker-badge speaker-' + firstName;
-                        speakerBadge.innerText = utt.speaker;
-                        div.appendChild(speakerBadge);
+                        for w in words:
+                            utt["words"].append({
+                                "text": w,
+                                "start": current_time,
+                                "end": current_time + word_duration
+                            })
+                            current_time += word_duration
 
-                        // Line break
-                        div.appendChild(document.createElement('br'));
+                transcript_json = json.dumps(transcript_data)
 
-                        // Words container (implicit in div)
-                        if (utt.words) {{
-                            utt.words.forEach((word, wIndex) => {{
-                                const wordSpan = document.createElement('span');
-                                wordSpan.className = 'word';
-                                wordSpan.id = 'word-' + index + '-' + wIndex;
-                                wordSpan.dataset.start = word.start;
-                                wordSpan.dataset.end = word.end;
-                                wordSpan.innerText = word.text + ' ';
-
-                                // Click word to seek
-                                wordSpan.onclick = (e) => {{
-                                    e.stopPropagation(); // Prevent utterance click
-                                    player.currentTime = word.start / 1000;
-                                    player.play();
-                                }};
-
-                                div.appendChild(wordSpan);
-                            }});
-                        }} else {{
-                             // Fallback if no words (should generally be handled by python logic)
-                             const textSpan = document.createElement('span');
-                             textSpan.innerText = utt.text;
-                             div.appendChild(textSpan);
+                # HTML/JS/CSS Component
+                html_code = f"""
+                <html>
+                <head>
+                    <style>
+                        body {{
+                            font-family: sans-serif;
+                            color: #31333F;
                         }}
+                        .audio-container {{
+                            position: sticky;
+                            top: 0;
+                            background: white;
+                            padding: 10px 0;
+                            border-bottom: 1px solid #ddd;
+                            z-index: 100;
+                        }}
+                        audio {{
+                            width: 100%;
+                        }}
+                        .transcript-container {{
+                            max-height: 600px;
+                            overflow-y: auto;
+                            padding: 20px 0;
+                        }}
+                        .utterance {{
+                            padding: 10px;
+                            border-radius: 5px;
+                            margin-bottom: 10px;
+                            transition: background-color 0.2s;
+                        }}
+                        .utterance:hover {{
+                            background-color: #f0f2f6;
+                        }}
+                        .utterance.active {{
+                            border-left: 4px solid #2e7af1;
+                        }}
+                        .speaker-badge {{
+                            display: inline-block;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-weight: bold;
+                            font-size: 0.8em;
+                            margin-bottom: 4px;
+                            color: white;
+                            background-color: #555;
+                        }}
+                        .speaker-Takara {{ background-color: #ff4b4b; }}
+                        .speaker-Jennifer {{ background-color: #2e7af1; }}
+                        .speaker-Bill {{ background-color: #2bb02b; }}
+                        .speaker-A {{ background-color: #ff4b4b; }}
+                        .speaker-B {{ background-color: #2e7af1; }}
+                        .speaker-C {{ background-color: #2bb02b; }}
 
-                        transcriptContainer.appendChild(div);
-                    }});
+                        .word {{
+                            cursor: pointer;
+                            padding: 1px 2px;
+                            border-radius: 3px;
+                            transition: background-color 0.1s;
+                        }}
+                        .word:hover {{
+                            background-color: #e0e0e0;
+                        }}
+                        .word.active {{
+                            background-color: #8da4ef;
+                            color: white;
+                        }}
+                    </style>
+                </head>
+                <body>
+                    <div class="audio-container">
+                        <audio id="player" controls>
+                            <source src="{audio_data_uri}" type="audio/mp3">
+                            Your browser does not support the audio element.
+                        </audio>
+                    </div>
+                    <div class="transcript-container" id="transcript">
+                        <!-- Content injected via JS -->
+                    </div>
 
-                    // Highlight active words
-                    let currentActiveWordId = null;
-                    let currentActiveUttIndex = -1;
+                    <script>
+                        const transcriptData = {transcript_json};
+                        const transcriptContainer = document.getElementById('transcript');
+                        const player = document.getElementById('player');
 
-                    player.ontimeupdate = () => {{
-                        const timeMs = player.currentTime * 1000;
+                        // Render Transcript
+                        transcriptData.forEach((utt, index) => {{
+                            const div = document.createElement('div');
+                            div.className = 'utterance';
+                            div.id = 'utt-' + index;
+                            div.dataset.start = utt.start; // ms
+                            div.dataset.end = utt.end;     // ms
 
-                        // 1. Find active Utterance (Optimization: check current first)
-                        let activeUttIndex = -1;
+                            // Speaker Badge
+                            const speakerBadge = document.createElement('span');
+                            // Use first name for class color mapping
+                            const firstName = utt.speaker.split(' ')[0];
+                            speakerBadge.className = 'speaker-badge speaker-' + firstName;
+                            speakerBadge.innerText = utt.speaker;
+                            div.appendChild(speakerBadge);
 
-                        // Check if still in current utterance
-                        if (currentActiveUttIndex !== -1) {{
-                            const utt = transcriptData[currentActiveUttIndex];
-                            if (timeMs >= utt.start && timeMs <= utt.end) {{
-                                activeUttIndex = currentActiveUttIndex;
+                            // Line break
+                            div.appendChild(document.createElement('br'));
+
+                            // Words container (implicit in div)
+                            if (utt.words) {{
+                                utt.words.forEach((word, wIndex) => {{
+                                    const wordSpan = document.createElement('span');
+                                    wordSpan.className = 'word';
+                                    wordSpan.id = 'word-' + index + '-' + wIndex;
+                                    wordSpan.dataset.start = word.start;
+                                    wordSpan.dataset.end = word.end;
+                                    wordSpan.innerText = word.text + ' ';
+
+                                    // Click word to seek
+                                    wordSpan.onclick = (e) => {{
+                                        e.stopPropagation(); // Prevent utterance click
+                                        player.currentTime = word.start / 1000;
+                                        player.play();
+                                    }};
+
+                                    div.appendChild(wordSpan);
+                                }});
+                            }} else {{
+                                 // Fallback if no words (should generally be handled by python logic)
+                                 const textSpan = document.createElement('span');
+                                 textSpan.innerText = utt.text;
+                                 div.appendChild(textSpan);
                             }}
-                        }}
 
-                        // If not, search all (or search from current forward)
-                        if (activeUttIndex === -1) {{
-                            for (let i = 0; i < transcriptData.length; i++) {{
-                                const utt = transcriptData[i];
-                                if (timeMs >= utt.start && timeMs < utt.end) {{
-                                    activeUttIndex = i;
-                                    break;
+                            transcriptContainer.appendChild(div);
+                        }});
+
+                        // Highlight active words
+                        let currentActiveWordId = null;
+                        let currentActiveUttIndex = -1;
+
+                        player.ontimeupdate = () => {{
+                            const timeMs = player.currentTime * 1000;
+
+                            // 1. Find active Utterance (Optimization: check current first)
+                            let activeUttIndex = -1;
+
+                            // Check if still in current utterance
+                            if (currentActiveUttIndex !== -1) {{
+                                const utt = transcriptData[currentActiveUttIndex];
+                                if (timeMs >= utt.start && timeMs <= utt.end) {{
+                                    activeUttIndex = currentActiveUttIndex;
                                 }}
                             }}
-                        }}
 
-                        // 2. If inside an utterance, find the active word
-                        if (activeUttIndex !== -1) {{
-                            currentActiveUttIndex = activeUttIndex; // Update cache
-                            const utt = transcriptData[activeUttIndex];
-
-                            // Highlight utterance container
-                             const uttDiv = document.getElementById('utt-' + activeUttIndex);
-                             if (uttDiv && !uttDiv.classList.contains('active')) {{
-                                 // clear old active utterances
-                                 document.querySelectorAll('.utterance.active').forEach(el => el.classList.remove('active'));
-                                 uttDiv.classList.add('active');
-                             }}
-
-                            if (utt.words) {{
-                                for (let j = 0; j < utt.words.length; j++) {{
-                                    const word = utt.words[j];
-                                    if (timeMs >= word.start && timeMs < word.end) {{
-                                        const wordId = 'word-' + activeUttIndex + '-' + j;
-
-                                        if (currentActiveWordId !== wordId) {{
-                                            // Remove previous
-                                            if (currentActiveWordId) {{
-                                                const prev = document.getElementById(currentActiveWordId);
-                                                if (prev) prev.classList.remove('active');
-                                            }}
-
-                                            // Add new
-                                            const next = document.getElementById(wordId);
-                                            if (next) {{
-                                                next.classList.add('active');
-                                                // Ensure the parent utterance is visible
-                                                const parentUtt = document.getElementById('utt-' + activeUttIndex);
-                                                if (parentUtt) {{
-                                                    // Simple check: is it far off screen?
-                                                    // For now, just scroll parent if the index CHANGED
-                                                    if (currentActiveWordId === null || !currentActiveWordId.startsWith('word-' + activeUttIndex)) {{
-                                                         parentUtt.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                                                    }}
-                                                }}
-                                            }}
-                                            currentActiveWordId = wordId;
-                                        }}
+                            // If not, search all (or search from current forward)
+                            if (activeUttIndex === -1) {{
+                                for (let i = 0; i < transcriptData.length; i++) {{
+                                    const utt = transcriptData[i];
+                                    if (timeMs >= utt.start && timeMs < utt.end) {{
+                                        activeUttIndex = i;
                                         break;
                                     }}
                                 }}
                             }}
-                        }}
-                    }};
-                </script>
-            </body>
-            </html>
-            """
 
-            components.html(html_code, height=600, scrolling=True)
+                            // 2. If inside an utterance, find the active word
+                            if (activeUttIndex !== -1) {{
+                                currentActiveUttIndex = activeUttIndex; // Update cache
+                                const utt = transcriptData[activeUttIndex];
 
-        else:
-            st.info("Audio file not available for playback. Please process a video.")
+                                // Highlight utterance container
+                                 const uttDiv = document.getElementById('utt-' + activeUttIndex);
+                                 if (uttDiv && !uttDiv.classList.contains('active')) {{
+                                     // clear old active utterances
+                                     document.querySelectorAll('.utterance.active').forEach(el => el.classList.remove('active'));
+                                     uttDiv.classList.add('active');
+                                 }}
 
-    with tab3:
-        st.subheader("Chat with your Meeting")
+                                if (utt.words) {{
+                                    for (let j = 0; j < utt.words.length; j++) {{
+                                        const word = utt.words[j];
+                                        if (timeMs >= word.start && timeMs < word.end) {{
+                                            const wordId = 'word-' + activeUttIndex + '-' + j;
+
+                                            if (currentActiveWordId !== wordId) {{
+                                                // Remove previous
+                                                if (currentActiveWordId) {{
+                                                    const prev = document.getElementById(currentActiveWordId);
+                                                    if (prev) prev.classList.remove('active');
+                                                }}
+
+                                                // Add new
+                                                const next = document.getElementById(wordId);
+                                                if (next) {{
+                                                    next.classList.add('active');
+                                                    // Ensure the parent utterance is visible
+                                                    const parentUtt = document.getElementById('utt-' + activeUttIndex);
+                                                    if (parentUtt) {{
+                                                        // Simple check: is it far off screen?
+                                                        // For now, just scroll parent if the index CHANGED
+                                                        if (currentActiveWordId === null || !currentActiveWordId.startsWith('word-' + activeUttIndex)) {{
+                                                             parentUtt.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                                                        }}
+                                                    }}
+                                                }}
+                                                currentActiveWordId = wordId;
+                                            }}
+                                            break;
+                                        }}
+                                    }}
+                                }}
+                            }}
+                        }};
+                    </script>
+                </body>
+                </html>
+                """
+
+                components.html(html_code, height=600, scrolling=True)
+
+            else:
+                st.info("Audio file not available for playback. Please process a video.")
+
+    with col_chat:
+        st.subheader("💬 Assistant")
+        st.markdown("Ask questions about your meeting.")
+
+        # Container for chat messages
+        chat_container = st.container(height=600)
 
         # Display chat messages from history on app rerun
-        for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+        with chat_container:
+            for message in st.session_state.chat_history:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-        # React to user input
-        if prompt := st.chat_input("Ask a question about the meeting..."):
+        # React to user input (Form used because st.chat_input cannot be in columns)
+        with st.form(key="chat_form", clear_on_submit=True):
+            user_input = st.text_input("Ask a question...", key="chat_msg_input")
+            submit_button = st.form_submit_button("Send")
+
+        if submit_button and user_input:
             # Display user message in chat message container
-            st.chat_message("user").markdown(prompt)
+            with chat_container:
+                st.chat_message("user").markdown(user_input)
             # Add user message to chat history
-            st.session_state.chat_history.append({"role": "user", "content": prompt})
+            st.session_state.chat_history.append({"role": "user", "content": user_input})
 
             # Get response from processor
+            # Generate timestamped transcript on the fly for the chat context
+            timestamped_transcript = processor.format_transcript_with_timestamps(st.session_state.raw_transcript)
+
             with st.spinner("Thinking..."):
                 response_text = processor.chat_with_meeting(
-                    st.session_state.formatted_transcript,
+                    timestamped_transcript,
                     st.session_state.chat_history,
-                    prompt,
-                    openai_key
+                    user_input,
+                    openai_key,
+                    intelligence_data=st.session_state.intelligence_data
                 )
 
             # Display assistant response in chat message container
-            with st.chat_message("assistant"):
-                st.markdown(response_text)
+            with chat_container:
+                with st.chat_message("assistant"):
+                    st.markdown(response_text)
             # Add assistant response to chat history
             st.session_state.chat_history.append({"role": "assistant", "content": response_text})
