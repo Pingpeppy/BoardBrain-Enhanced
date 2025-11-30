@@ -390,7 +390,20 @@ MOCK_INTELLIGENCE_RESPONSE = {
             "due_date_inference": "Next week"
         }
     ],
-    "summary": "The board approved the previous meeting's minutes. A bid for roof repairs was discussed but deemed too high. It was decided to solicit two additional bids by next week."
+    "summary": "The board approved the previous meeting's minutes. A bid for roof repairs was discussed but deemed too high. It was decided to solicit two additional bids by next week.",
+    "sentiment_analysis": {
+        "overall": "Neutral",
+        "per_speaker": [
+            {"speaker": "Takara Thale", "sentiment": "Neutral"},
+            {"speaker": "Jennifer Mahaffey", "sentiment": "Concerned"},
+            {"speaker": "Bill Pate", "sentiment": "Positive"}
+        ]
+    },
+    "topic_trends": [
+        {"topic": "Minutes Approval", "count": 2},
+        {"topic": "Roof Repairs", "count": 5},
+        {"topic": "Budget", "count": 3}
+    ]
 }
 
 def read_file_content(file_obj, filename):
@@ -458,13 +471,15 @@ def extract_intelligence(transcript_text, api_key, bylaws_text=None, speakers_co
         "   - If a motion is proposed but lacks a 'Second', mark the 'status' as 'Failed due to lack of Second' and 'vote_outcome' as 'None'.\n"
         "   - Extract fields: topic, proposer, seconder, vote_outcome, status.\n"
         "3. **Action Items**: Extract tasks assigned to individuals (task_description, assigned_to, due_date_inference).\n"
-        "4. **Summary & Quorum Check**:\n"
+        "4. **Sentiment Analysis**: Analyze the overall sentiment of the meeting (Positive, Neutral, Negative, Concerned, etc.) and the sentiment of each speaker. Return structure: {\"overall\": \"...\", \"per_speaker\": [{\"speaker\": \"...\", \"sentiment\": \"...\"}]}.\n"
+        "5. **Topic Trends**: Identify key topics discussed and the frequency/intensity of discussion. Return structure: [{\"topic\": \"...\", \"count\": ...}].\n"
+        "6. **Summary & Quorum Check**:\n"
         "   - Summarize the meeting.\n"
         "   - If Bylaws are provided, analyze them to find the required Quorum size.\n"
         "   - Compare the Quorum requirement with the 'Detected Speaker Count'.\n"
         "   - If the detected speaker count is LESS than the Quorum requirement, you MUST append the following phrase to the end of the summary: ' [Provisional - Potential Quorum Issue]'.\n\n"
 
-        "Return ONLY raw JSON with keys: meeting_date, motions, action_items, summary."
+        "Return ONLY raw JSON with keys: meeting_date, motions, action_items, summary, sentiment_analysis, topic_trends."
     )
 
     try:
