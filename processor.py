@@ -320,6 +320,32 @@ def format_transcript(transcript_obj):
         # Fallback if no speaker labels
         return transcript_obj.get("text", "")
 
+def format_time(ms):
+    """
+    Converts milliseconds to MM:SS format.
+    """
+    seconds = int(ms / 1000)
+    minutes = seconds // 60
+    remaining_seconds = seconds % 60
+    return f"{minutes:02}:{remaining_seconds:02}"
+
+def format_transcript_with_timestamps(transcript_obj):
+    """
+    Converts the raw transcript object into a string with timestamps.
+    Format: [MM:SS] Speaker Name: Text
+    """
+    if "utterances" in transcript_obj and transcript_obj["utterances"]:
+        formatted_text = ""
+        for turn in transcript_obj["utterances"]:
+            start_ms = turn.get("start", 0)
+            timestamp = format_time(start_ms)
+            speaker = turn.get("speaker", "Unknown")
+            text = turn.get("text", "")
+            formatted_text += f"[{timestamp}] {speaker}: {text}\n"
+        return formatted_text
+    else:
+        return transcript_obj.get("text", "")
+
 def calculate_speaking_time(transcript_obj):
     """
     Calculates the total speaking time for each speaker.
@@ -526,10 +552,10 @@ def generate_word_document(intelligence_data, transcript_text, include_transcrip
 
 # --- Chat Functionality ---
 
-def chat_with_meeting(transcript_text, chat_history, user_message, api_key):
+def chat_with_meeting(transcript_text, chat_history, user_message, api_key, intelligence_data=None):
     """
     Sends a message to the LLM with the transcript context and chat history.
-    Returns the assistant's response text.
+    Now supports intelligence data (summary, motions, etc.) and timestamped transcripts.
     """
 
     # --- MOCK MODE ---
@@ -540,32 +566,50 @@ def chat_with_meeting(transcript_text, chat_history, user_message, api_key):
 
     client = OpenAI(api_key=api_key)
 
+    # Prepare Intelligence Context
+    intelligence_context = ""
+    if intelligence_data:
+        intelligence_context = "MEETING INTELLIGENCE:\n"
+        if "summary" in intelligence_data:
+            intelligence_context += f"Summary: {intelligence_data['summary']}\n"
+        if "motions" in intelligence_data:
+            intelligence_context += f"Motions: {json.dumps(intelligence_data['motions'], indent=2)}\n"
+        if "action_items" in intelligence_data:
+            intelligence_context += f"Action Items: {json.dumps(intelligence_data['action_items'], indent=2)}\n"
+
     # Construct messages
-    # System prompt
+    # System prompt - Persona & Instructions
     system_prompt = (
-        "You are a helpful assistant analyzing a Board Meeting transcript. "
-        "Use the provided transcript to answer the user's questions. "
-        "If the answer is not in the transcript, say so."
+        "You are a dedicated 'HOA Board Expert' and 'Personal Meeting Assistant'. "
+        "Your goal is to help the user understand the board meeting details, decisions, and discussions.\n\n"
+        "**Instructions:**\n"
+        "1. **Use Context**: Answer questions using the provided 'Transcript Context' and 'Meeting Intelligence'.\n"
+        "2. **Cite Evidence**: When referencing specific discussions or quotes, YOU MUST cite the speaker and the timestamp (e.g., 'As Bill said at [12:30]...').\n"
+        "3. **Be Precise**: If referring to a motion or action item, use the exact details from the Intelligence data.\n"
+        "4. **No Hallucinations**: If the answer is not in the context, state clearly that you cannot find that information.\n"
+        "5. **Tone**: Professional, helpful, and knowledgeable about parliamentary procedure."
     )
 
     messages = [{"role": "system", "content": system_prompt}]
 
-    # Provide transcript context (could be added as a system message or first user message)
-    # Adding it as a system context for better adherence
+    # Context Message
+    full_context = ""
+    if intelligence_context:
+        full_context += f"{intelligence_context}\n\n"
+
+    full_context += f"TRANSCRIPT CONTEXT:\n{transcript_text}"
+
     messages.append({
         "role": "system",
-        "content": f"TRANSCRIPT CONTEXT:\n{transcript_text}"
+        "content": full_context
     })
 
-    # Add history
+    # Add history (Limit to last 15 messages to prevent token overload)
     # chat_history is expected to be list of {"role": "user"|"assistant", "content": "..."}
-    # Streamlit chat format: {"role": "user", "content": "msg"}
-    # We filter/map it just to be safe if needed, but assuming direct pass-through
-    for msg in chat_history:
-        messages.append({"role": msg["role"], "content": msg["content"]})
+    recent_history = chat_history[-15:] if len(chat_history) > 15 else chat_history
 
-    # Note: We do NOT append user_message explicitly here because it is expected
-    # that the caller (app.py) has already appended the latest user message to chat_history.
+    for msg in recent_history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
 
     try:
         response = client.chat.completions.create(
@@ -575,3 +619,52 @@ def chat_with_meeting(transcript_text, chat_history, user_message, api_key):
         return response.choices[0].message.content
     except Exception as e:
         return f"Error communicating with OpenAI: {str(e)}"
+
+def suggest_speaker_names(transcript_text, api_key):
+    """
+    Analyzes the transcript to suggest potential names for speaker labels (e.g. 'Speaker A').
+    Returns a dictionary mapping detected speaker labels to suggested names.
+    e.g. {'Speaker A': 'Bill Smith', 'Speaker B': 'Sarah'}
+    """
+
+    # --- MOCK MODE ---
+    if not api_key or api_key.strip().lower() == "dummy":
+        time.sleep(1)
+        # Assuming the input text has 'Speaker A', 'Speaker B' etc.
+        # But in mock mode our transcript already has names.
+        # So we just return a dummy map for demonstration if specific keys were found
+        return {"Speaker A": "John Doe (Suggested)", "Speaker B": "Jane Smith (Suggested)"}
+    # -----------------
+
+    client = OpenAI(api_key=api_key)
+
+    prompt = (
+        "You are an intelligent assistant analyzing a meeting transcript to identify speakers.\n"
+        "Your goal is to map generic speaker labels (like 'Speaker A', 'Speaker B') to real names based on context clues.\n"
+        "Clues might include:\n"
+        "- Self-introductions ('Hi, I'm Bill')\n"
+        "- Direct address ('Thanks, Sarah')\n"
+        "- Role identification ('As the Treasurer, I think...')\n\n"
+        "**Instructions:**\n"
+        "1. Read the provided transcript.\n"
+        "2. Identify any speakers labeled as 'Speaker [X]' or similar generic labels.\n"
+        "3. Look for clues to their real identity.\n"
+        "4. Return a JSON object mapping the original label to the suggested name.\n"
+        "   - If no clue is found, do not include that speaker in the map.\n"
+        "   - Only map generic labels to specific names.\n"
+        "   - Example Output: {\"Speaker A\": \"Bill Smith\", \"Speaker C\": \"Sarah Jones\"}"
+    )
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": transcript_text}
+            ],
+            response_format={"type": "json_object"}
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        # In case of error (or if response isn't valid JSON), return empty map
+        return {}
