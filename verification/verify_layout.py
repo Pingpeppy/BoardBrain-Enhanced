@@ -4,9 +4,9 @@ import shutil
 import time
 from playwright.sync_api import sync_playwright, expect
 
-def verify_chat_in_sidebar():
+def verify_chat_above_settings():
     """
-    Verifies that the Chat Assistant is located in the sidebar on the Results page.
+    Verifies that the Chat Assistant is located above the Settings in the sidebar.
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -38,8 +38,6 @@ def verify_chat_in_sidebar():
         page.set_input_files("input[type='file']", dummy_video_path)
 
         # Wait for file to be processed/uploaded by Streamlit
-        # Check if the "Process Meeting" button is enabled?
-        # Sometimes upload takes time.
         time.sleep(3)
 
         # 4. Click "Process Meeting"
@@ -58,24 +56,35 @@ def verify_chat_in_sidebar():
             page.screenshot(path="verification/debug_failed_process.png")
             raise
 
-        # 6. Verify Chat in Sidebar
-        print("Verifying Chat location...")
+        # 6. Verify Sidebar Order
+        print("Verifying Sidebar Order...")
         sidebar = page.locator('section[data-testid="stSidebar"]')
 
-        # Check if "💬 Assistant" text is inside the sidebar locator
-        assistant_header = sidebar.get_by_text("💬 Assistant")
-        expect(assistant_header).to_be_visible()
+        # We need to find the Chat Header and the Settings Header
+        chat_header = sidebar.get_by_text("💬 Assistant")
+        settings_header = sidebar.get_by_text("⚙️ Settings")
 
-        # Check if chat input is in sidebar
-        chat_input_label = sidebar.get_by_label("Ask a question...")
-        expect(chat_input_label).to_be_visible()
+        expect(chat_header).to_be_visible()
+        expect(settings_header).to_be_visible()
+
+        # Get bounding boxes to compare Y positions
+        chat_box = chat_header.bounding_box()
+        settings_box = settings_header.bounding_box()
+
+        print(f"Chat Y: {chat_box['y']}")
+        print(f"Settings Y: {settings_box['y']}")
+
+        if chat_box['y'] < settings_box['y']:
+            print("SUCCESS: Chat is above Settings.")
+        else:
+            raise AssertionError("FAILURE: Chat is NOT above Settings.")
 
         # 7. Take Screenshot
         print("Taking verification screenshot...")
-        page.screenshot(path="verification/verification.png")
+        page.screenshot(path="verification/verification_order.png")
 
         print("Verification Successful!")
         browser.close()
 
 if __name__ == "__main__":
-    verify_chat_in_sidebar()
+    verify_chat_above_settings()

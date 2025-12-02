@@ -15,37 +15,42 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Sidebar ---
-st.sidebar.title("⚙️ Settings")
+# --- Sidebar Layout ---
+chat_container = st.sidebar.container()
+settings_container = st.sidebar.container()
 
-# Mock Mode Toggle
-use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
+# --- Sidebar Settings (Moved to Container) ---
+with settings_container:
+    st.sidebar.title("⚙️ Settings")
 
-# Pre-fill keys from st.secrets if available (fallback to manual entry)
-default_assembly_key = st.secrets.get("ASSEMBLYAI_API_KEY", "")
-default_openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    # Mock Mode Toggle
+    use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
 
-# If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
-# However, for UI clarity:
-if use_mock_mode:
-    st.sidebar.warning("Running in Mock Mode. API keys will be ignored.")
-    assemblyai_key = "dummy"
-    openai_key = "dummy"
-    # Show disabled inputs just for visual confirmation of what's happening
-    st.sidebar.text_input("AssemblyAI API Key", value="dummy", disabled=True)
-    st.sidebar.text_input("OpenAI API Key", value="dummy", disabled=True)
-else:
-    assemblyai_key = st.sidebar.text_input("AssemblyAI API Key", value=default_assembly_key, type="password")
-    openai_key = st.sidebar.text_input("OpenAI API Key", value=default_openai_key, type="password")
+    # Pre-fill keys from st.secrets if available (fallback to manual entry)
+    default_assembly_key = st.secrets.get("ASSEMBLYAI_API_KEY", "")
+    default_openai_key = st.secrets.get("OPENAI_API_KEY", "")
 
-    # Warning if keys are missing
-    if not assemblyai_key or not openai_key:
-        st.sidebar.warning("⚠️ API Keys are missing. Please configure secrets or enter them above.")
+    # If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
+    # However, for UI clarity:
+    if use_mock_mode:
+        st.sidebar.warning("Running in Mock Mode. API keys will be ignored.")
+        assemblyai_key = "dummy"
+        openai_key = "dummy"
+        # Show disabled inputs just for visual confirmation of what's happening
+        st.sidebar.text_input("AssemblyAI API Key", value="dummy", disabled=True)
+        st.sidebar.text_input("OpenAI API Key", value="dummy", disabled=True)
+    else:
+        assemblyai_key = st.sidebar.text_input("AssemblyAI API Key", value=default_assembly_key, type="password")
+        openai_key = st.sidebar.text_input("OpenAI API Key", value=default_openai_key, type="password")
 
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "**Note**: If keys are missing, the app will automatically fall back to 'Mock Mode'."
-)
+        # Warning if keys are missing
+        if not assemblyai_key or not openai_key:
+            st.sidebar.warning("⚠️ API Keys are missing. Please configure secrets or enter them above.")
+
+    st.sidebar.markdown("---")
+    st.sidebar.info(
+        "**Note**: If keys are missing, the app will automatically fall back to 'Mock Mode'."
+    )
 
 # --- Main Interface ---
 st.title("🧠 BoardBrain")
@@ -236,16 +241,16 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
     data = st.session_state.intelligence_data
 
     # --- Assistant Moved to Sidebar ---
-    with st.sidebar:
-        st.markdown("---")
+    # Render into the chat container defined at the top
+    with chat_container:
         st.subheader("💬 Assistant")
         st.markdown("Ask questions about your meeting.")
 
         # Container for chat messages
-        chat_container = st.container(height=500)
+        chat_msg_container = st.container(height=500)
 
         # Display chat messages from history on app rerun
-        with chat_container:
+        with chat_msg_container:
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
@@ -257,7 +262,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
 
         if submit_button and user_input:
             # Display user message in chat message container
-            with chat_container:
+            with chat_msg_container:
                 st.chat_message("user").markdown(user_input)
             # Add user message to chat history
             st.session_state.chat_history.append({"role": "user", "content": user_input})
@@ -276,11 +281,14 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                 )
 
             # Display assistant response in chat message container
-            with chat_container:
+            with chat_msg_container:
                 with st.chat_message("assistant"):
                     st.markdown(response_text)
             # Add assistant response to chat history
             st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+
+        # Add separator between chat and settings
+        st.markdown("---")
 
     # --- Main Content ---
     # TABS: Dashboard, Analytics, Transcript
