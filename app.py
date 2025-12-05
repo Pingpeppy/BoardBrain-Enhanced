@@ -27,9 +27,23 @@ with settings_container:
     # Mock Mode Toggle
     use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
 
-    # Pre-fill keys from st.secrets if available (fallback to manual entry)
-    default_assembly_key = st.secrets.get("ASSEMBLYAI_API_KEY", "")
-    default_openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    # --- Load Local Secrets (secrets.txt) ---
+    local_secrets = {}
+    if os.path.exists("secrets.txt"):
+        try:
+            with open("secrets.txt", "rb") as f:
+                import tomllib
+                local_secrets = tomllib.load(f)
+        except Exception as e:
+            st.sidebar.warning(f"Failed to load secrets.txt: {e}")
+
+    # Helper to get secret from local file OR st.secrets
+    def get_secret(key, default=""):
+        return local_secrets.get(key, st.secrets.get(key, default))
+
+    # Pre-fill keys (prioritize local secrets.txt)
+    default_assembly_key = get_secret("ASSEMBLYAI_API_KEY")
+    default_openai_key = get_secret("OPENAI_API_KEY")
 
     # If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
     # However, for UI clarity:
@@ -52,8 +66,8 @@ with settings_container:
 
     # Supabase Settings
     st.sidebar.subheader("Database")
-    default_supabase_url = st.secrets.get("SUPABASE_URL", "")
-    default_supabase_key = st.secrets.get("SUPABASE_KEY", "")
+    default_supabase_url = get_secret("SUPABASE_URL")
+    default_supabase_key = get_secret("SUPABASE_KEY")
 
     if use_mock_mode:
         supabase_url = "dummy"
@@ -293,8 +307,15 @@ if st.session_state.step == "upload":
                         # Auto-update transcript
                         for utterance in transcript_obj["utterances"]:
                             old_name = utterance["speaker"]
+                            new_name = None
+
                             if old_name in suggestions:
-                                utterance["speaker"] = suggestions[old_name]
+                                new_name = suggestions[old_name]
+                            elif old_name and old_name.startswith("Speaker ") and old_name.replace("Speaker ", "") in suggestions:
+                                new_name = suggestions[old_name.replace("Speaker ", "")]
+
+                            if new_name:
+                                utterance["speaker"] = new_name
 
                         # Re-format with new names
                         formatted_text = processor.format_transcript(transcript_obj)
@@ -714,7 +735,11 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     cols = st.columns(3)
                     for i, speaker in enumerate(unique_speakers):
                         # Default value: Check suggestions first, then fall back to current name
-                        suggested_name = st.session_state.speaker_suggestions.get(speaker, speaker)
+                        suggested_name = speaker
+                        if speaker in st.session_state.speaker_suggestions:
+                            suggested_name = st.session_state.speaker_suggestions[speaker]
+                        elif speaker.startswith("Speaker ") and speaker.replace("Speaker ", "") in st.session_state.speaker_suggestions:
+                            suggested_name = st.session_state.speaker_suggestions[speaker.replace("Speaker ", "")]
 
                         with cols[i % 3]:
                             new_names[speaker] = st.text_input(
@@ -847,7 +872,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                 # but maybe add a "Search Results" text block below if searching.
                 pass
 
-            transcript_json = json.dumps(transcript_data)
+            transcript_json = json.dumps(transcript_data).replace("</script>", "<\\/script>")
 
             # HTML/JS/CSS Component
             html_code = f"""
@@ -952,9 +977,10 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                         // Speaker Badge
                         const speakerBadge = document.createElement('span');
                         // Use first name for class color mapping
-                        const firstName = utt.speaker.split(' ')[0];
+                        const speakerName = utt.speaker || "Unknown";
+                        const firstName = speakerName.split(' ')[0];
                         speakerBadge.className = 'speaker-badge speaker-' + firstName;
-                        speakerBadge.innerText = utt.speaker;
+                        speakerBadge.innerText = speakerName;
                         div.appendChild(speakerBadge);
 
                         // Line break
