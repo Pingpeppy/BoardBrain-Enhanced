@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     duration_minutes INTEGER DEFAULT 0,
     speakers_count INTEGER DEFAULT 0,
     bylaws_text TEXT,
+    audio_stored BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -138,8 +139,16 @@ SELECT
     m.speakers_count,
     m.created_at,
     i.summary,
-    COALESCE(json_array_length(i.motions::json), 0) as motion_count,
-    COALESCE(json_array_length(i.action_items::json), 0) as action_item_count
+    CASE
+        WHEN i.motions IS NULL THEN 0
+        WHEN jsonb_typeof(i.motions) = 'array' THEN jsonb_array_length(i.motions)
+        ELSE 0
+    END as motion_count,
+    CASE
+        WHEN i.action_items IS NULL THEN 0
+        WHEN jsonb_typeof(i.action_items) = 'array' THEN jsonb_array_length(i.action_items)
+        ELSE 0
+    END as action_item_count
 FROM meetings m
 LEFT JOIN intelligence i ON m.id = i.meeting_id
 ORDER BY m.created_at DESC;
