@@ -293,8 +293,15 @@ if st.session_state.step == "upload":
                         # Auto-update transcript
                         for utterance in transcript_obj["utterances"]:
                             old_name = utterance["speaker"]
+                            new_name = None
+
                             if old_name in suggestions:
-                                utterance["speaker"] = suggestions[old_name]
+                                new_name = suggestions[old_name]
+                            elif old_name and old_name.startswith("Speaker ") and old_name.replace("Speaker ", "") in suggestions:
+                                new_name = suggestions[old_name.replace("Speaker ", "")]
+
+                            if new_name:
+                                utterance["speaker"] = new_name
 
                         # Re-format with new names
                         formatted_text = processor.format_transcript(transcript_obj)
@@ -714,7 +721,11 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     cols = st.columns(3)
                     for i, speaker in enumerate(unique_speakers):
                         # Default value: Check suggestions first, then fall back to current name
-                        suggested_name = st.session_state.speaker_suggestions.get(speaker, speaker)
+                        suggested_name = speaker
+                        if speaker in st.session_state.speaker_suggestions:
+                            suggested_name = st.session_state.speaker_suggestions[speaker]
+                        elif speaker.startswith("Speaker ") and speaker.replace("Speaker ", "") in st.session_state.speaker_suggestions:
+                            suggested_name = st.session_state.speaker_suggestions[speaker.replace("Speaker ", "")]
 
                         with cols[i % 3]:
                             new_names[speaker] = st.text_input(
@@ -847,7 +858,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                 # but maybe add a "Search Results" text block below if searching.
                 pass
 
-            transcript_json = json.dumps(transcript_data)
+            transcript_json = json.dumps(transcript_data).replace("</script>", "<\\/script>")
 
             # HTML/JS/CSS Component
             html_code = f"""
@@ -952,9 +963,10 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                         // Speaker Badge
                         const speakerBadge = document.createElement('span');
                         // Use first name for class color mapping
-                        const firstName = utt.speaker.split(' ')[0];
+                        const speakerName = utt.speaker || "Unknown";
+                        const firstName = speakerName.split(' ')[0];
                         speakerBadge.className = 'speaker-badge speaker-' + firstName;
-                        speakerBadge.innerText = utt.speaker;
+                        speakerBadge.innerText = speakerName;
                         div.appendChild(speakerBadge);
 
                         // Line break
