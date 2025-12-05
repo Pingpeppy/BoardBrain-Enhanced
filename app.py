@@ -3,6 +3,7 @@ import tempfile
 import os
 import pandas as pd
 import processor
+import database
 import base64
 import json
 import streamlit.components.v1 as components
@@ -48,9 +49,31 @@ with settings_container:
             st.sidebar.warning("⚠️ API Keys are missing. Please configure secrets or enter them above.")
 
     st.sidebar.markdown("---")
+
+    # Supabase Settings
+    st.sidebar.subheader("Database")
+    default_supabase_url = st.secrets.get("SUPABASE_URL", "")
+    default_supabase_key = st.secrets.get("SUPABASE_KEY", "")
+
+    if use_mock_mode:
+        supabase_url = "dummy"
+        supabase_key = "dummy"
+        st.sidebar.text_input("Supabase URL", value="dummy", disabled=True)
+        st.sidebar.text_input("Supabase Key", value="dummy", disabled=True)
+    else:
+        supabase_url = st.sidebar.text_input("Supabase URL", value=default_supabase_url, type="default", help="Your Supabase project URL")
+        supabase_key = st.sidebar.text_input("Supabase Key", value=default_supabase_key, type="password", help="Your Supabase anon/service key")
+
+        if not supabase_url or not supabase_key:
+            st.sidebar.caption("Database not configured. Meetings will not be saved.")
+
+    st.sidebar.markdown("---")
     st.sidebar.info(
         "**Note**: If keys are missing, the app will automatically fall back to 'Mock Mode'."
     )
+
+# Initialize Supabase Manager
+db = database.SupabaseManager(url=supabase_url, key=supabase_key)
 
 # --- Main Interface ---
 st.title("🧠 BoardBrain")
@@ -73,11 +96,85 @@ if "bylaws_text" not in st.session_state:
     st.session_state.bylaws_text = ""
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
+if "current_meeting_id" not in st.session_state:
+    st.session_state.current_meeting_id = None
+if "video_filename" not in st.session_state:
+    st.session_state.video_filename = ""
 
 # --- Step 1: Upload & Process ---
 if st.session_state.step == "upload":
 
-    st.markdown("#### Step 1: Upload Materials")
+    # --- Previous Meetings Section ---
+    if db.is_connected():
+        previous_meetings = db.list_meetings(limit=10)
+        if previous_meetings:
+            st.markdown("#### Previous Meetings")
+            st.caption("Load a previously processed meeting or upload a new one.")
+
+            # Create a selectbox with meeting options
+            meeting_options = ["-- Select a meeting --"] + [
+                f"{m.get('video_filename', 'Unknown')} ({m.get('meeting_date', 'No date')}) - {m.get('created_at', '')[:10]}"
+                for m in previous_meetings
+            ]
+
+            selected_meeting_idx = st.selectbox(
+                "Load Previous Meeting",
+                range(len(meeting_options)),
+                format_func=lambda x: meeting_options[x],
+                key="meeting_selector"
+            )
+
+            col_load, col_delete = st.columns([3, 1])
+
+            with col_load:
+                if selected_meeting_idx > 0 and st.button("Load Meeting", type="primary"):
+                    meeting = previous_meetings[selected_meeting_idx - 1]
+                    meeting_id = meeting.get("id")
+
+                    with st.spinner("Loading meeting data..."):
+                        full_data = db.load_full_meeting(meeting_id)
+
+                        if full_data:
+                            # Restore session state from database
+                            st.session_state.current_meeting_id = meeting_id
+                            st.session_state.video_filename = meeting.get("video_filename", "")
+
+                            if full_data.get("transcript"):
+                                st.session_state.raw_transcript = full_data["transcript"]
+                                st.session_state.formatted_transcript = processor.format_transcript(full_data["transcript"])
+
+                            if full_data.get("intelligence"):
+                                st.session_state.intelligence_data = full_data["intelligence"]
+
+                            if full_data.get("chat_history"):
+                                st.session_state.chat_history = full_data["chat_history"]
+                            else:
+                                st.session_state.chat_history = []
+
+                            st.session_state.bylaws_text = full_data.get("bylaws_text", "")
+
+                            # Note: audio_path won't be available for loaded meetings
+                            st.session_state.audio_path = None
+
+                            st.session_state.processing_complete = True
+                            st.session_state.step = "results"
+                            st.rerun()
+                        else:
+                            st.error("Failed to load meeting data.")
+
+            with col_delete:
+                if selected_meeting_idx > 0 and st.button("Delete", type="secondary"):
+                    meeting = previous_meetings[selected_meeting_idx - 1]
+                    meeting_id = meeting.get("id")
+                    if db.delete_meeting(meeting_id):
+                        st.success("Meeting deleted!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete meeting.")
+
+            st.markdown("---")
+
+    st.markdown("#### Upload New Meeting")
 
     col1, col2 = st.columns(2)
 
@@ -194,6 +291,56 @@ if st.session_state.step == "upload":
                 # Reset chat history on new process
                 st.session_state.chat_history = []
 
+                # Store video filename
+                st.session_state.video_filename = uploaded_file.name
+
+                # --- Save to Database ---
+                if db.is_connected():
+                    status_container.write("💾 Saving to database...")
+
+                    # Calculate duration
+                    duration_min = 0
+                    if "utterances" in transcript_obj and transcript_obj["utterances"]:
+                        last_end = transcript_obj["utterances"][-1].get("end", 0)
+                        duration_min = round(last_end / 1000 / 60)
+
+                    # Create meeting record
+                    meeting_data = {
+                        "video_filename": uploaded_file.name,
+                        "meeting_date": intelligence.get("meeting_date"),
+                        "duration_minutes": duration_min,
+                        "speakers_count": speakers_count
+                    }
+
+                    meeting_id = db.save_meeting(meeting_data)
+
+                    if meeting_id:
+                        st.session_state.current_meeting_id = meeting_id
+
+                        # Save transcript
+                        db.save_transcript(meeting_id, transcript_obj)
+
+                        # Save intelligence
+                        db.save_intelligence(meeting_id, intelligence)
+
+                        # Save bylaws if provided
+                        if bylaws_text:
+                            db.save_bylaws(meeting_id, bylaws_text)
+
+                        # Save speaker info
+                        speaking_times = processor.calculate_speaking_time(transcript_obj)
+                        speakers_data = []
+                        for speaker, time_ms in speaking_times.items():
+                            speakers_data.append({
+                                "original_label": speaker,
+                                "assigned_name": speaker,
+                                "speaking_time_ms": time_ms
+                            })
+                        db.save_speakers(meeting_id, speakers_data)
+
+                        status_container.write("✅ Meeting saved to database!")
+                # --------------------------
+
                 # Cleanup
                 status_container.write("🧹 Cleaning up temporary files...")
                 if os.path.exists(video_path):
@@ -234,6 +381,9 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             st.session_state.step = "upload"
             st.session_state.processing_complete = False
             st.session_state.intelligence_data = None
+            st.session_state.current_meeting_id = None
+            st.session_state.video_filename = ""
+            st.session_state.chat_history = []
             st.rerun()
 
     st.markdown("---")
@@ -267,6 +417,10 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             # Add user message to chat history
             st.session_state.chat_history.append({"role": "user", "content": user_input})
 
+            # Save user message to database
+            if db.is_connected() and st.session_state.current_meeting_id:
+                db.save_chat_message(st.session_state.current_meeting_id, "user", user_input)
+
             # Get response from processor
             # Generate timestamped transcript on the fly for the chat context
             timestamped_transcript = processor.format_transcript_with_timestamps(st.session_state.raw_transcript)
@@ -286,6 +440,10 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     st.markdown(response_text)
             # Add assistant response to chat history
             st.session_state.chat_history.append({"role": "assistant", "content": response_text})
+
+            # Save assistant response to database
+            if db.is_connected() and st.session_state.current_meeting_id:
+                db.save_chat_message(st.session_state.current_meeting_id, "assistant", response_text)
 
         # Add separator between chat and settings
         st.markdown("---")
@@ -525,6 +683,34 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
 
                                 # Clear suggestions after successful save
                                 st.session_state.speaker_suggestions = {}
+
+                                # 4. Update database if connected
+                                if db.is_connected() and st.session_state.current_meeting_id:
+                                    status_container.write("💾 Saving updates to database...")
+                                    meeting_id = st.session_state.current_meeting_id
+
+                                    # Update transcript
+                                    db.update_transcript(meeting_id, st.session_state.raw_transcript)
+
+                                    # Update intelligence
+                                    db.update_intelligence(meeting_id, intelligence)
+
+                                    # Update speakers
+                                    speaking_times = processor.calculate_speaking_time(st.session_state.raw_transcript)
+                                    speakers_data = []
+                                    for speaker, time_ms in speaking_times.items():
+                                        # Find original label if possible
+                                        original_label = speaker
+                                        for old, new in new_names.items():
+                                            if new == speaker:
+                                                original_label = old
+                                                break
+                                        speakers_data.append({
+                                            "original_label": original_label,
+                                            "assigned_name": speaker,
+                                            "speaking_time_ms": time_ms
+                                        })
+                                    db.save_speakers(meeting_id, speakers_data)
 
                                 status_container.update(label="Update Complete!", state="complete", expanded=False)
                                 st.rerun()

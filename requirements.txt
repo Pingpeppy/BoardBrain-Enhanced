@@ -5,3 +5,5 @@ openai
 static-ffmpeg
 python-docx
 pypdf
+supabase
+altair
