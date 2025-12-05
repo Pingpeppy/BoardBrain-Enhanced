@@ -7,7 +7,7 @@ import json
 import os
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 import streamlit as st
 
 # Try to import supabase, handle gracefully if not installed
@@ -17,6 +17,28 @@ try:
 except ImportError:
     SUPABASE_AVAILABLE = False
     Client = None
+
+
+def _parse_jsonb(value: Any, default: Any = None) -> Any:
+    """
+    Safely parse JSONB data from Supabase.
+
+    Supabase Python client auto-deserializes JSONB columns into Python objects,
+    so we need to handle both cases:
+    - Already a Python object (list/dict) -> return as-is
+    - JSON string -> parse it
+    - None/empty -> return default
+    """
+    if value is None:
+        return default if default is not None else None
+    if isinstance(value, (list, dict)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return default if default is not None else None
+    return default if default is not None else None
 
 
 class SupabaseManager:
@@ -237,9 +259,10 @@ class SupabaseManager:
             if result.data and len(result.data) > 0:
                 record = result.data[0]
                 # Reconstruct the transcript object format
+                # Note: JSONB columns are auto-deserialized by Supabase client
                 return {
                     "text": record.get("raw_text", ""),
-                    "utterances": json.loads(record.get("utterances", "[]"))
+                    "utterances": _parse_jsonb(record.get("utterances"), [])
                 }
             return None
 
@@ -329,13 +352,14 @@ class SupabaseManager:
             if result.data and len(result.data) > 0:
                 record = result.data[0]
                 # Reconstruct the intelligence object format
+                # Note: JSONB columns are auto-deserialized by Supabase client
                 return {
                     "meeting_date": record.get("meeting_date"),
                     "summary": record.get("summary", ""),
-                    "motions": json.loads(record.get("motions", "[]")),
-                    "action_items": json.loads(record.get("action_items", "[]")),
-                    "sentiment_analysis": json.loads(record.get("sentiment_analysis", "{}")),
-                    "topic_trends": json.loads(record.get("topic_trends", "[]"))
+                    "motions": _parse_jsonb(record.get("motions"), []),
+                    "action_items": _parse_jsonb(record.get("action_items"), []),
+                    "sentiment_analysis": _parse_jsonb(record.get("sentiment_analysis"), {}),
+                    "topic_trends": _parse_jsonb(record.get("topic_trends"), [])
                 }
             return None
 
