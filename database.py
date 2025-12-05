@@ -323,6 +323,7 @@ class SupabaseManager:
                 "action_items": json.dumps(intelligence_data.get("action_items", [])),
                 "sentiment_analysis": json.dumps(intelligence_data.get("sentiment_analysis", {})),
                 "topic_trends": json.dumps(intelligence_data.get("topic_trends", [])),
+                "financial_impact": json.dumps(intelligence_data.get("financial_impact", [])),
                 "created_at": datetime.utcnow().isoformat()
             }
 
@@ -359,7 +360,8 @@ class SupabaseManager:
                     "motions": _parse_jsonb(record.get("motions"), []),
                     "action_items": _parse_jsonb(record.get("action_items"), []),
                     "sentiment_analysis": _parse_jsonb(record.get("sentiment_analysis"), {}),
-                    "topic_trends": _parse_jsonb(record.get("topic_trends"), [])
+                    "topic_trends": _parse_jsonb(record.get("topic_trends"), []),
+                    "financial_impact": _parse_jsonb(record.get("financial_impact"), [])
                 }
             return None
 
@@ -389,6 +391,7 @@ class SupabaseManager:
                 "action_items": json.dumps(intelligence_data.get("action_items", [])),
                 "sentiment_analysis": json.dumps(intelligence_data.get("sentiment_analysis", {})),
                 "topic_trends": json.dumps(intelligence_data.get("topic_trends", [])),
+                "financial_impact": json.dumps(intelligence_data.get("financial_impact", [])),
                 "updated_at": datetime.utcnow().isoformat()
             }
 

@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS intelligence (
     action_items JSONB DEFAULT '[]'::jsonb,
     sentiment_analysis JSONB DEFAULT '{}'::jsonb,
     topic_trends JSONB DEFAULT '[]'::jsonb,
+    financial_impact JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(meeting_id)

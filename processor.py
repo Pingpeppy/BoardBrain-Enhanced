@@ -403,6 +403,18 @@ MOCK_INTELLIGENCE_RESPONSE = {
         {"topic": "Minutes Approval", "count": 2},
         {"topic": "Roof Repairs", "count": 5},
         {"topic": "Budget", "count": 3}
+    ],
+    "financial_impact": [
+        {
+            "amount": 5000,
+            "description": "Roof Repairs Bid",
+            "context": "Bid received from Roofing Co. for repairs."
+        },
+        {
+            "amount": 200,
+            "description": "Budget Overage",
+            "context": "Minor overage in landscaping supplies."
+        }
     ]
 }
 
@@ -473,13 +485,14 @@ def extract_intelligence(transcript_text, api_key, bylaws_text=None, speakers_co
         "3. **Action Items**: Extract tasks assigned to individuals (task_description, assigned_to, due_date_inference).\n"
         "4. **Sentiment Analysis**: Analyze the overall sentiment of the meeting (Positive, Neutral, Negative, Concerned, etc.) and the sentiment of each speaker. Return structure: {\"overall\": \"...\", \"per_speaker\": [{\"speaker\": \"...\", \"sentiment\": \"...\"}]}.\n"
         "5. **Topic Trends**: Identify key topics discussed and the frequency/intensity of discussion. Return structure: [{\"topic\": \"...\", \"count\": ...}].\n"
-        "6. **Summary & Quorum Check**:\n"
+        "6. **Financial Impact**: Extract all financial figures mentioned (e.g., dollar amounts for bids, budgets, costs). Return a list of objects with 'amount' (number, no currency symbols), 'description' (string), and 'context' (string). If none, return empty list.\n"
+        "7. **Summary & Quorum Check**:\n"
         "   - Summarize the meeting.\n"
         "   - If Bylaws are provided, analyze them to find the required Quorum size.\n"
         "   - Compare the Quorum requirement with the 'Detected Speaker Count'.\n"
         "   - If the detected speaker count is LESS than the Quorum requirement, you MUST append the following phrase to the end of the summary: ' [Provisional - Potential Quorum Issue]'.\n\n"
 
-        "Return ONLY raw JSON with keys: meeting_date, motions, action_items, summary, sentiment_analysis, topic_trends."
+        "Return ONLY raw JSON with keys: meeting_date, motions, action_items, summary, sentiment_analysis, topic_trends, financial_impact."
     )
 
     try:

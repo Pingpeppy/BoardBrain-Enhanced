@@ -698,6 +698,41 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             else:
                 st.caption("No sentiment data available.")
 
+        st.markdown("---")
+
+        # 4. Financial Impact Analysis (New)
+        st.subheader("💰 Financial Impact Analysis")
+        financial_impact = data.get("financial_impact", [])
+
+        if financial_impact:
+            # Calculate Total
+            total_spend = sum(float(item.get("amount", 0)) for item in financial_impact)
+
+            # Metric
+            st.metric("Total Potential Spend Discussed", f"${total_spend:,.2f}")
+
+            # Detailed Table
+            df_financial = pd.DataFrame(financial_impact)
+            # Reorder columns if needed
+            if not df_financial.empty:
+                cols_order = ["description", "amount", "context"]
+                # Filter to only existing columns
+                cols_order = [c for c in cols_order if c in df_financial.columns]
+                df_financial = df_financial[cols_order]
+
+                st.dataframe(
+                    df_financial,
+                    column_config={
+                        "description": "Item Description",
+                        "amount": st.column_config.NumberColumn("Amount", format="$%.2f"),
+                        "context": "Context/Notes"
+                    },
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.info("No specific financial figures were detected in this meeting.")
+
 
     # --- TAB 3: TRANSCRIPT ---
     with tab_transcript:
