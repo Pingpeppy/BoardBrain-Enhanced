@@ -767,14 +767,22 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                             st.info("No changes detected.")
 
         # Interactive Transcript
-        if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+        # Check if we have audio file for playback
+        audio_available = st.session_state.audio_path and os.path.exists(st.session_state.audio_path)
 
+        if audio_available:
             # Read audio file as base64
             with open(st.session_state.audio_path, "rb") as f:
                 audio_bytes = f.read()
             audio_base64 = base64.b64encode(audio_bytes).decode()
             audio_data_uri = f"data:audio/mp3;base64,{audio_base64}"
+        else:
+            audio_data_uri = ""
+            if st.session_state.raw_transcript:
+                st.info("💡 Audio file not available. Showing transcript without audio playback.")
 
+        # Always show transcript if we have it
+        if st.session_state.raw_transcript:
             # Prepare Transcript Data for JS
             transcript_data = st.session_state.raw_transcript.get("utterances", [])
             # Fallback if no utterances (e.g. no speaker labels)
@@ -829,6 +837,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                         padding: 10px 0;
                         border-bottom: 1px solid #333;
                         z-index: 100;
+                        {'display: none;' if not audio_available else ''}
                     }}
                     audio {{
                         width: 100%;
@@ -901,6 +910,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                     const transcriptData = {transcript_json};
                     const transcriptContainer = document.getElementById('transcript');
                     const player = document.getElementById('player');
+                    const audioAvailable = {'true' if audio_available else 'false'};
 
                     // Render Transcript
                     transcriptData.forEach((utt, index) => {{
@@ -931,12 +941,14 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                                 wordSpan.dataset.end = word.end;
                                 wordSpan.innerText = word.text + ' ';
 
-                                // Click word to seek
-                                wordSpan.onclick = (e) => {{
-                                    e.stopPropagation(); // Prevent utterance click
-                                    player.currentTime = word.start / 1000;
-                                    player.play();
-                                }});
+                                // Click word to seek (only if audio available)
+                                if (audioAvailable) {{
+                                    wordSpan.onclick = (e) => {{
+                                        e.stopPropagation(); // Prevent utterance click
+                                        player.currentTime = word.start / 1000;
+                                        player.play();
+                                    }};
+                                }}
 
                                 div.appendChild(wordSpan);
                             }});
@@ -950,12 +962,13 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                         transcriptContainer.appendChild(div);
                     }});
 
-                    // Highlight active words
+                    // Highlight active words (only if audio available)
                     let currentActiveWordId = null;
                     let currentActiveUttIndex = -1;
 
-                    player.ontimeupdate = () => {{
-                        const timeMs = player.currentTime * 1000;
+                    if (audioAvailable) {{
+                        player.ontimeupdate = () => {{
+                            const timeMs = player.currentTime * 1000;
 
                         // 1. Find active Utterance (Optimization: check current first)
                         let activeUttIndex = -1;
@@ -1027,6 +1040,7 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
                             }}
                         }}
                     }};
+                    }}
                 </script>
             </body>
             </html>
@@ -1035,4 +1049,4 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
             components.html(html_code, height=600, scrolling=True)
 
         else:
-            st.info("Audio file not available for playback. Please process a video.")
+            st.info("No transcript available. Please process a video first.")
