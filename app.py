@@ -27,9 +27,23 @@ with settings_container:
     # Mock Mode Toggle
     use_mock_mode = st.sidebar.checkbox("Enable Mock Mode", value=False, help="Use sample data to save API tokens.")
 
-    # Pre-fill keys from st.secrets if available (fallback to manual entry)
-    default_assembly_key = st.secrets.get("ASSEMBLYAI_API_KEY", "")
-    default_openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    # --- Load Local Secrets (secrets.txt) ---
+    local_secrets = {}
+    if os.path.exists("secrets.txt"):
+        try:
+            with open("secrets.txt", "rb") as f:
+                import tomllib
+                local_secrets = tomllib.load(f)
+        except Exception as e:
+            st.sidebar.warning(f"Failed to load secrets.txt: {e}")
+
+    # Helper to get secret from local file OR st.secrets
+    def get_secret(key, default=""):
+        return local_secrets.get(key, st.secrets.get(key, default))
+
+    # Pre-fill keys (prioritize local secrets.txt)
+    default_assembly_key = get_secret("ASSEMBLYAI_API_KEY")
+    default_openai_key = get_secret("OPENAI_API_KEY")
 
     # If Mock Mode is enabled, we hide the keys or disable them, but simpler to just ignore them in logic.
     # However, for UI clarity:
@@ -52,8 +66,8 @@ with settings_container:
 
     # Supabase Settings
     st.sidebar.subheader("Database")
-    default_supabase_url = st.secrets.get("SUPABASE_URL", "")
-    default_supabase_key = st.secrets.get("SUPABASE_KEY", "")
+    default_supabase_url = get_secret("SUPABASE_URL")
+    default_supabase_key = get_secret("SUPABASE_KEY")
 
     if use_mock_mode:
         supabase_url = "dummy"
