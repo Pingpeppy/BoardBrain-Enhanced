@@ -171,8 +171,12 @@ if st.session_state.step == "upload":
 
                             st.session_state.bylaws_text = full_data.get("bylaws_text", "")
 
-                            # Note: audio_path won't be available for loaded meetings
-                            st.session_state.audio_path = None
+                            # Try to download audio from storage
+                            audio_path = db.download_audio(meeting_id)
+                            if audio_path:
+                                st.session_state.audio_path = audio_path
+                            else:
+                                st.session_state.audio_path = None
 
                             st.session_state.processing_complete = True
                             st.session_state.step = "results"
@@ -234,6 +238,13 @@ if st.session_state.step == "upload":
             status_container = st.status("Processing Meeting...", expanded=True)
 
             try:
+                # Clean up any previous audio files
+                if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+                    try:
+                        os.remove(st.session_state.audio_path)
+                    except:
+                        pass  # Silently ignore cleanup errors
+
                 # 1. Save File Temporarily
                 status_container.write("📂 Saving uploaded file...")
                 tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") # Or infer extension
@@ -383,6 +394,16 @@ if st.session_state.step == "upload":
                             })
                         db.save_speakers(meeting_id, speakers_data)
 
+                        # Upload audio to storage
+                        status_container.write("📤 Uploading audio file...")
+                        if db.upload_audio(meeting_id, audio_path):
+                            status_container.write("✅ Audio uploaded successfully!")
+
+                            # Cleanup old audio files (keep only last 5)
+                            db.cleanup_old_audio(keep_count=5)
+                        else:
+                            status_container.write("⚠️ Audio upload failed, but meeting data was saved.")
+
                         status_container.write("✅ Meeting saved to database!")
                 # --------------------------
 
@@ -423,12 +444,20 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
         st.success("Meeting Processed Successfully!")
     with col_head_2:
         if st.button("🔄 Start Over", type="secondary"):
+            # Clean up any downloaded audio files
+            if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
+                try:
+                    os.remove(st.session_state.audio_path)
+                except:
+                    pass  # Silently ignore cleanup errors
+
             st.session_state.step = "upload"
             st.session_state.processing_complete = False
             st.session_state.intelligence_data = None
             st.session_state.current_meeting_id = None
             st.session_state.video_filename = ""
             st.session_state.chat_history = []
+            st.session_state.audio_path = None
             st.rerun()
 
     st.markdown("---")

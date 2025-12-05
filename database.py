@@ -4,6 +4,8 @@ Handles all database operations for meeting persistence.
 """
 
 import json
+import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 import streamlit as st
@@ -171,6 +173,9 @@ class SupabaseManager:
             return True
 
         try:
+            # Delete audio file from storage first
+            self.delete_audio(meeting_id)
+
             # Delete related records first (cascading delete may handle this)
             self.client.table("chat_messages").delete().eq("meeting_id", meeting_id).execute()
             self.client.table("speakers").delete().eq("meeting_id", meeting_id).execute()
@@ -552,6 +557,145 @@ class SupabaseManager:
         except Exception as e:
             st.error(f"Error retrieving bylaws: {str(e)}")
             return ""
+
+    # ==================== AUDIO STORAGE OPERATIONS ====================
+
+    def upload_audio(self, meeting_id: str, audio_file_path: str) -> bool:
+        """
+        Upload audio file to Supabase Storage.
+
+        Args:
+            meeting_id: UUID of the meeting
+            audio_file_path: Local path to the audio file
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if self.mock_mode:
+            return True
+
+        if not os.path.exists(audio_file_path):
+            st.error(f"Audio file not found: {audio_file_path}")
+            return False
+
+        try:
+            # Read the audio file
+            with open(audio_file_path, "rb") as f:
+                audio_data = f.read()
+
+            # Upload to Supabase Storage bucket 'meeting-audio'
+            # Filename format: {meeting_id}.mp3
+            file_name = f"{meeting_id}.mp3"
+
+            self.client.storage.from_("meeting-audio").upload(
+                file_name,
+                audio_data,
+                file_options={"content-type": "audio/mpeg"}
+            )
+
+            # Update meeting record with audio_stored flag
+            self.client.table("meetings").update({
+                "audio_stored": True
+            }).eq("id", meeting_id).execute()
+
+            return True
+
+        except Exception as e:
+            st.error(f"Error uploading audio: {str(e)}")
+            return False
+
+    def download_audio(self, meeting_id: str) -> Optional[str]:
+        """
+        Download audio file from Supabase Storage to a temporary file.
+
+        Args:
+            meeting_id: UUID of the meeting
+
+        Returns:
+            Path to downloaded temporary file, or None if failed
+        """
+        if self.mock_mode:
+            return None
+
+        try:
+            # Download from Supabase Storage
+            file_name = f"{meeting_id}.mp3"
+            audio_data = self.client.storage.from_("meeting-audio").download(file_name)
+
+            # Save to temporary file
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+            temp_file.write(audio_data)
+            temp_file.close()
+
+            return temp_file.name
+
+        except Exception as e:
+            # Silently fail - audio might not be stored for older meetings
+            return None
+
+    def delete_audio(self, meeting_id: str) -> bool:
+        """
+        Delete audio file from Supabase Storage.
+
+        Args:
+            meeting_id: UUID of the meeting
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if self.mock_mode:
+            return True
+
+        try:
+            file_name = f"{meeting_id}.mp3"
+            self.client.storage.from_("meeting-audio").remove([file_name])
+
+            # Update meeting record
+            self.client.table("meetings").update({
+                "audio_stored": False
+            }).eq("id", meeting_id).execute()
+
+            return True
+
+        except Exception as e:
+            # Don't show error - file might not exist
+            return False
+
+    def cleanup_old_audio(self, keep_count: int = 5) -> bool:
+        """
+        Delete audio files for all but the most recent meetings.
+        Keeps only the last 'keep_count' meetings with audio.
+
+        Args:
+            keep_count: Number of most recent meetings to keep audio for
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if self.mock_mode:
+            return True
+
+        try:
+            # Get all meetings with audio, ordered by creation date
+            result = self.client.table("meetings").select("id, audio_stored").eq("audio_stored", True).order("created_at", desc=True).execute()
+
+            if not result.data or len(result.data) <= keep_count:
+                # Nothing to clean up
+                return True
+
+            # Delete audio for meetings beyond the keep_count
+            meetings_to_cleanup = result.data[keep_count:]
+
+            for meeting in meetings_to_cleanup:
+                meeting_id = meeting.get("id")
+                if meeting_id:
+                    self.delete_audio(meeting_id)
+
+            return True
+
+        except Exception as e:
+            st.error(f"Error cleaning up old audio: {str(e)}")
+            return False
 
     # ==================== FULL MEETING LOAD ====================
 
