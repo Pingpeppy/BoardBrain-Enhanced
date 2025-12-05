@@ -140,8 +140,26 @@ if st.session_state.step == "upload":
                             st.session_state.video_filename = meeting.get("video_filename", "")
 
                             if full_data.get("transcript"):
-                                st.session_state.raw_transcript = full_data["transcript"]
-                                st.session_state.formatted_transcript = processor.format_transcript(full_data["transcript"])
+                                # Apply speaker name mappings from speakers table to transcript
+                                transcript = full_data["transcript"]
+                                speakers_data = full_data.get("speakers", [])
+
+                                if speakers_data and "utterances" in transcript:
+                                    # Create mapping from original_label to assigned_name
+                                    speaker_map = {
+                                        s.get("original_label"): s.get("assigned_name")
+                                        for s in speakers_data
+                                        if s.get("original_label") and s.get("assigned_name")
+                                    }
+
+                                    # Apply mappings to utterances
+                                    for utterance in transcript["utterances"]:
+                                        old_label = utterance.get("speaker")
+                                        if old_label in speaker_map:
+                                            utterance["speaker"] = speaker_map[old_label]
+
+                                st.session_state.raw_transcript = transcript
+                                st.session_state.formatted_transcript = processor.format_transcript(transcript)
 
                             if full_data.get("intelligence"):
                                 st.session_state.intelligence_data = full_data["intelligence"]
@@ -244,7 +262,18 @@ if st.session_state.step == "upload":
                 formatted_text = processor.format_transcript(transcript_obj)
                 st.session_state.formatted_transcript = formatted_text
 
+                # --- Store Original Speaker Labels (Before Auto-Suggest) ---
+                original_speaker_labels = {}
+                if "utterances" in transcript_obj:
+                    # Create mapping of current speaker names
+                    for utterance in transcript_obj["utterances"]:
+                        speaker = utterance.get("speaker")
+                        if speaker:
+                            original_speaker_labels[speaker] = speaker
+                # ---------------------------------------------------------
+
                 # --- Auto-Suggest Speaker Names (New Step) ---
+                suggestions = {}  # Initialize to avoid scope issues
                 if "utterances" in transcript_obj:
                     status_container.write("🕵️ Identifying speakers...")
                     suggestions = processor.suggest_speaker_names(formatted_text, openai_key)
@@ -327,12 +356,28 @@ if st.session_state.step == "upload":
                         if bylaws_text:
                             db.save_bylaws(meeting_id, bylaws_text)
 
-                        # Save speaker info
+                        # Save speaker info with original labels
                         speaking_times = processor.calculate_speaking_time(transcript_obj)
                         speakers_data = []
+
+                        # Create reverse mapping: current_name -> original_label
+                        current_to_original = {}
+                        for original_label in original_speaker_labels.keys():
+                            # Find the current name in utterances
+                            for utterance in transcript_obj["utterances"]:
+                                # Check if this utterance was originally from this speaker
+                                current_name = utterance.get("speaker")
+                                if original_label in suggestions and suggestions[original_label] == current_name:
+                                    current_to_original[current_name] = original_label
+                                    break
+                                elif original_label not in suggestions and current_name == original_label:
+                                    current_to_original[current_name] = original_label
+                                    break
+
                         for speaker, time_ms in speaking_times.items():
+                            original_label = current_to_original.get(speaker, speaker)
                             speakers_data.append({
-                                "original_label": speaker,
+                                "original_label": original_label,
                                 "assigned_name": speaker,
                                 "speaking_time_ms": time_ms
                             })

@@ -645,10 +645,9 @@ def suggest_speaker_names(transcript_text, api_key):
     # --- MOCK MODE ---
     if not api_key or api_key.strip().lower() == "dummy":
         time.sleep(1)
-        # Assuming the input text has 'Speaker A', 'Speaker B' etc.
-        # But in mock mode our transcript already has names.
-        # So we just return a dummy map for demonstration if specific keys were found
-        return {"Speaker A": "John Doe (Suggested)", "Speaker B": "Jane Smith (Suggested)"}
+        # Return raw labels (without "Speaker" prefix) as that's what AssemblyAI provides
+        # In mock mode, our MOCK_TRANSCRIPT_RESPONSE already has full names, so return empty dict
+        return {}
     # -----------------
 
     client = OpenAI(api_key=api_key)
@@ -664,10 +663,11 @@ def suggest_speaker_names(transcript_text, api_key):
         "1. Read the provided transcript.\n"
         "2. Identify any speakers labeled as 'Speaker [X]' or similar generic labels.\n"
         "3. Look for clues to their real identity.\n"
-        "4. Return a JSON object mapping the original label to the suggested name.\n"
+        "4. Return a JSON object mapping the RAW LABEL (without 'Speaker' prefix) to the suggested name.\n"
+        "   - IMPORTANT: Use ONLY the letter/number (e.g., 'A', 'B', 'C'), NOT 'Speaker A', 'Speaker B'.\n"
         "   - If no clue is found, do not include that speaker in the map.\n"
         "   - Only map generic labels to specific names.\n"
-        "   - Example Output: {\"Speaker A\": \"Bill Smith\", \"Speaker C\": \"Sarah Jones\"}"
+        "   - Example Output: {\"A\": \"Bill Smith\", \"B\": \"Jennifer Mahaffey\", \"C\": \"Sarah Jones\"}"
     )
 
     try:
