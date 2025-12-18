@@ -4,13 +4,25 @@ BoardBrain is a Streamlit application designed to process video recordings of HO
 
 ## Features
 
-*   **Video Processing**: Extracts audio from MP4, MOV, and AVI files.
-*   **Transcription**: Uses AssemblyAI to provide speaker-labeled transcripts.
-*   **Intelligence**: Uses OpenAI GPT-4o to extract:
+### 🧩 HOA-Specific Intelligence
+*   **Parliamentarian Mode**:
+    *   **Motion Validation**: Automatically checks if motions were "Seconded" before marking them as valid, adhering to Robert's Rules of Order.
+    *   **Quorum Monitor**: Upload your bylaws to automatically verify if enough board members are present for a valid vote based on the speaker count.
+*   **Financial Impact Analysis**: Detects dollar amounts, bids, and budget discussions to create a "Potential Spend" report, ensuring no financial detail is missed.
+*   **Smart Speaker ID**: Uses GPT-4o context clues (e.g., "I agree, Susan") to automatically identify and label speakers in the transcript.
+
+### 📄 Automated Reporting
+*   **Instant Minutes Draft**: One-click export to **Microsoft Word (.docx)**. Generates a professional draft including:
     *   Executive Summary
-    *   Motions (Topic, Proposer, Vote Outcome)
+    *   Motions Table (Proposer, Seconder, Outcome)
     *   Action Items (Task, Assignee, Due Date)
-*   **Mock Mode**: Built-in testing mode to simulate the pipeline without valid API keys.
+*   **Topic & Sentiment Trends**: Visual analytics showing what topics dominated the conversation and the overall sentiment of the board.
+
+### 🤖 Interactive Assistant
+*   **Chat with your Meeting**: Ask questions like "What was the final decision on the pool contract?" and get answers with **timestamped citations** linking directly to the audio.
+*   **Transcript Search**: instant search with word-level audio synchronization.
+
+
 
 ## Prerequisites (Windows)
 
@@ -50,6 +62,21 @@ Ensure you have Python 3.8+ installed. You can download it from the [Microsoft S
     pip install -r requirements.txt
     ```
 
+## Configuration
+
+To avoid entering API keys every time you run the app, you can create a `secrets.txt` file in the project root. This is highly recommended for frequent use.
+
+Create a file named `secrets.txt` and add your keys (TOML format):
+
+```toml
+ASSEMBLYAI_API_KEY = "your_assemblyai_key_here"
+OPENAI_API_KEY = "your_openai_key_here"
+
+# Optional: For saving meeting history to the cloud
+SUPABASE_URL = "your_supabase_project_url"
+SUPABASE_KEY = "your_supabase_anon_key"
+```
+
 ## Running the Application
 
 Run the Streamlit app using the following command:
@@ -62,16 +89,18 @@ The application will open in your default web browser (usually at `http://localh
 
 ## Usage Guide
 
-1.  **API Keys**:
-    *   On the sidebar, you will be asked for an **AssemblyAI API Key** and an **OpenAI API Key**.
-    *   If you have them, enter them to use the real services.
-    *   **Mock Mode**: If you do not have keys, or if you type `dummy` into the fields, the app will run in "Mock Mode". This allows you to test the UI and flow using sample data without incurring API costs.
+1.  **Initialization**:
+    *   The app will automatically load keys from `secrets.txt` if present.
+    *   Otherwise, enter your **AssemblyAI** and **OpenAI** keys in the sidebar.
+    *   **Mock Mode**: If keys are missing, or if you type `dummy`, the app runs in "Mock Mode" for zero-cost testing.
 
 2.  **Processing**:
     *   Upload a video file (MP4, MOV, AVI).
+    *   (Optional) **Parliamentarian Mode**: Upload or paste your **Community Bylaws**. This enables the app to check for Quorum and validate motions more strictly.
     *   Click **Process Meeting**.
-    *   Watch the status logs as the app extracts audio, transcribes, and generates insights.
 
 3.  **Results**:
-    *   **Insights Tab**: View the Executive Summary, Motions table, and Action Items table.
-    *   **Transcript Tab**: Read the full transcript with speaker labels.
+    *   **Dashboard**: View the Executive Summary, Motions Table, and Action Items.
+    *   **Analytics**: Visualize speaking time, topic distribution, and financial impact.
+    *   **Export**: Click "Download Word Document" to get a pre-formatted minutes draft.
+    *   **Assistant**: Use the sidebar chat to ask questions about the meeting history.
