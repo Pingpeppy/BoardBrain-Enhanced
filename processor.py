@@ -246,7 +246,9 @@ def transcribe_audio(audio_path, api_key):
     """
 
     # --- MOCK MODE ---
-    if not api_key or api_key.strip().lower() == "dummy":
+    # Check for missing, placeholder, or dummy keys
+    placeholder_keys = ["dummy", "secret_assembly_key", "your-key-here", "your_key_here"]
+    if not api_key or api_key.strip().lower() in placeholder_keys:
         time.sleep(2) # Simulate processing time
         return MOCK_TRANSCRIPT_RESPONSE
     # -----------------
@@ -452,7 +454,9 @@ def extract_intelligence(transcript_text, api_key, bylaws_text=None, speakers_co
     """
 
     # --- MOCK MODE ---
-    if not api_key or api_key.strip().lower() == "dummy":
+    # Check for missing, placeholder, or dummy keys
+    placeholder_keys = ["dummy", "secret_openai_key", "your-key-here", "your_key_here"]
+    if not api_key or api_key.strip().lower() in placeholder_keys:
         # Simulate API latency
         time.sleep(2)
         # Mock logic for quorum check in mock mode
@@ -587,7 +591,9 @@ def chat_with_meeting(transcript_text, chat_history, user_message, api_key, inte
     """
 
     # --- MOCK MODE ---
-    if not api_key or api_key.strip().lower() == "dummy":
+    # Check for missing, placeholder, or dummy keys
+    placeholder_keys = ["dummy", "secret_openai_key", "your-key-here", "your_key_here"]
+    if not api_key or api_key.strip().lower() in placeholder_keys:
         time.sleep(1)
         return f"This is a mock response to: '{user_message}' (Mock Mode Enabled)"
     # -----------------
@@ -656,7 +662,9 @@ def suggest_speaker_names(transcript_text, api_key):
     """
 
     # --- MOCK MODE ---
-    if not api_key or api_key.strip().lower() == "dummy":
+    # Check for missing, placeholder, or dummy keys
+    placeholder_keys = ["dummy", "secret_openai_key", "your-key-here", "your_key_here"]
+    if not api_key or api_key.strip().lower() in placeholder_keys:
         time.sleep(1)
         # Return raw labels (without "Speaker" prefix) as that's what AssemblyAI provides
         # In mock mode, our MOCK_TRANSCRIPT_RESPONSE already has full names, so return empty dict

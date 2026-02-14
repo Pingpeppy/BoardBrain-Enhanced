@@ -4,3 +4,5 @@ __pycache__/
 *.mp3
 .env
 venv/
+.streamlit/secrets.toml
+test_supabase.py

@@ -1,0 +1,10 @@
+# Streamlit Configuration for BoardBrain
+
+[server]
+# Increase max upload size to 700MB for large video files
+maxUploadSize = 700
+
+[theme]
+# Optional: Dark mode theme (can be customized)
+base = "dark"
+primaryColor = "#0068c9"

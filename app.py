@@ -544,8 +544,13 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
         st.markdown("---")
 
     # --- Main Content ---
-    # TABS: Dashboard, Analytics, Transcript
-    tab_dashboard, tab_analytics, tab_transcript = st.tabs(["📊 Dashboard", "📈 Analytics", "📜 Full Transcript"])
+    # TABS: Dashboard, Analytics, Transcript, Meeting Library
+    tab_dashboard, tab_analytics, tab_transcript, tab_library = st.tabs([
+        "📊 Dashboard",
+        "📈 Analytics",
+        "📜 Full Transcript",
+        "📚 Meeting Library"
+    ])
 
     # --- TAB 1: DASHBOARD ---
     with tab_dashboard:
@@ -1140,3 +1145,312 @@ elif st.session_state.step == "results" and st.session_state.processing_complete
 
         else:
             st.info("No transcript available. Please process a video first.")
+
+    # --- TAB 4: MEETING LIBRARY ---
+    with tab_library:
+        st.subheader("📚 Meeting Library")
+        st.caption("Browse, search, and manage all processed meetings")
+
+        if not db.is_connected():
+            st.warning("⚠️ Database not connected. Meeting Library requires database access.")
+            st.info("Configure your Supabase credentials in the sidebar to enable this feature.")
+        else:
+            # Search and Filter Controls
+            col_search, col_date1, col_date2, col_speakers = st.columns([3, 2, 2, 2])
+
+            with col_search:
+                search_text = st.text_input(
+                    "🔍 Search",
+                    placeholder="Search by filename...",
+                    key="library_search",
+                    label_visibility="collapsed"
+                )
+
+            with col_date1:
+                date_from = st.date_input(
+                    "From Date",
+                    value=None,
+                    key="library_date_from",
+                    help="Filter meetings from this date"
+                )
+
+            with col_date2:
+                date_to = st.date_input(
+                    "To Date",
+                    value=None,
+                    key="library_date_to",
+                    help="Filter meetings until this date"
+                )
+
+            with col_speakers:
+                speaker_range = st.slider(
+                    "Speakers",
+                    min_value=0,
+                    max_value=20,
+                    value=(0, 20),
+                    key="library_speakers",
+                    help="Filter by number of speakers"
+                )
+
+            # Apply filters
+            if search_text or date_from or date_to or speaker_range != (0, 20):
+                # Use search method with filters
+                meetings = db.search_meetings(
+                    search_query=search_text if search_text else None,
+                    date_from=str(date_from) if date_from else None,
+                    date_to=str(date_to) if date_to else None,
+                    min_speakers=speaker_range[0] if speaker_range[0] > 0 else None,
+                    max_speakers=speaker_range[1] if speaker_range[1] < 20 else None,
+                    limit=100
+                )
+            else:
+                # Default: show all meetings
+                meetings = db.list_meetings(limit=100)
+
+            # Display meeting count
+            st.markdown(f"**{len(meetings)}** meeting{'s' if len(meetings) != 1 else ''} found")
+
+            if meetings:
+                # Prepare data for display
+                display_data = []
+                for meeting in meetings:
+                    display_data.append({
+                        "ID": meeting.get("id", ""),
+                        "Date": meeting.get("meeting_date", "Unknown"),
+                        "Filename": meeting.get("video_filename", "Unknown"),
+                        "Duration (min)": meeting.get("duration_minutes", 0),
+                        "Speakers": meeting.get("speakers_count", 0),
+                        "Processed": meeting.get("created_at", "")[:10] if meeting.get("created_at") else "Unknown"
+                    })
+
+                df = pd.DataFrame(display_data)
+
+                # Display as interactive dataframe
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "ID": st.column_config.TextColumn("ID", width="small"),
+                        "Date": st.column_config.DateColumn("Meeting Date", format="YYYY-MM-DD"),
+                        "Filename": st.column_config.TextColumn("Video Filename", width="large"),
+                        "Duration (min)": st.column_config.NumberColumn("Duration", format="%d min"),
+                        "Speakers": st.column_config.NumberColumn("Speakers", format="%d"),
+                        "Processed": st.column_config.DateColumn("Processed On", format="YYYY-MM-DD")
+                    }
+                )
+
+                st.markdown("---")
+
+                # Meeting Comparison Section
+                st.markdown("### 📊 Compare Meetings")
+                st.caption("Select 2-3 meeting IDs below to compare their metrics side-by-side")
+
+                col_comp1, col_comp2, col_comp3 = st.columns(3)
+
+                with col_comp1:
+                    compare_id1 = st.text_input("Meeting ID 1", placeholder="First meeting ID", key="compare_1")
+                with col_comp2:
+                    compare_id2 = st.text_input("Meeting ID 2", placeholder="Second meeting ID", key="compare_2")
+                with col_comp3:
+                    compare_id3 = st.text_input("Meeting ID 3 (Optional)", placeholder="Third meeting ID", key="compare_3")
+
+                if st.button("🔍 Compare Selected Meetings", type="secondary"):
+                    # Collect valid IDs
+                    compare_ids = [id for id in [compare_id1, compare_id2, compare_id3] if id and id.strip()]
+
+                    if len(compare_ids) < 2:
+                        st.warning("Please enter at least 2 meeting IDs to compare.")
+                    elif len(compare_ids) > 3:
+                        st.warning("Please select no more than 3 meetings to compare.")
+                    else:
+                        with st.spinner("Loading meeting data for comparison..."):
+                            # Load data for each meeting
+                            comparison_data = []
+                            for meeting_id in compare_ids:
+                                full_data = db.load_full_meeting(meeting_id)
+                                if full_data:
+                                    comparison_data.append({
+                                        "id": meeting_id,
+                                        "meeting": full_data.get("meeting", {}),
+                                        "intelligence": full_data.get("intelligence", {}),
+                                        "transcript": full_data.get("transcript", {})
+                                    })
+                                else:
+                                    st.error(f"Failed to load meeting: {meeting_id}")
+
+                            if len(comparison_data) >= 2:
+                                # Display comparison
+                                with st.expander("📊 Comparison Results", expanded=True):
+                                    # Create comparison table
+                                    st.markdown("#### Meeting Overview")
+
+                                    # Basic metrics
+                                    metrics_data = []
+                                    for data in comparison_data:
+                                        meeting = data["meeting"]
+                                        intelligence = data["intelligence"]
+                                        transcript = data["transcript"]
+
+                                        # Calculate speaking time stats
+                                        speaking_times = processor.calculate_speaking_time(transcript)
+                                        total_speaking_time = sum(speaking_times.values()) / 1000 / 60 if speaking_times else 0
+
+                                        metrics_data.append({
+                                            "Meeting ID": data["id"][:8] + "...",
+                                            "Date": meeting.get("meeting_date", "Unknown"),
+                                            "Filename": meeting.get("video_filename", "Unknown")[:30] + "...",
+                                            "Duration (min)": meeting.get("duration_minutes", 0),
+                                            "Speakers": meeting.get("speakers_count", 0),
+                                            "Motions": len(intelligence.get("motions", [])),
+                                            "Action Items": len(intelligence.get("action_items", [])),
+                                            "Speaking Time (min)": round(total_speaking_time, 1)
+                                        })
+
+                                    df_comparison = pd.DataFrame(metrics_data)
+                                    st.dataframe(df_comparison, use_container_width=True, hide_index=True)
+
+                                    # Sentiment comparison
+                                    st.markdown("#### 🎭 Sentiment Analysis")
+                                    sentiment_cols = st.columns(len(comparison_data))
+                                    for idx, data in enumerate(comparison_data):
+                                        with sentiment_cols[idx]:
+                                            intelligence = data["intelligence"]
+                                            sentiment = intelligence.get("sentiment_analysis", {})
+                                            overall = sentiment.get("overall", "Unknown")
+
+                                            # Color code based on sentiment
+                                            color = "#4CAF50" if overall == "Positive" else "#FFC107" if overall == "Neutral" else "#F44336"
+                                            st.markdown(f"**Meeting {idx + 1}**")
+                                            st.markdown(f"<div style='background-color: {color}; padding: 10px; border-radius: 5px; text-align: center; color: white;'><b>{overall}</b></div>", unsafe_allow_html=True)
+
+                                    # Motions comparison
+                                    st.markdown("#### 📋 Motions Comparison")
+                                    motions_cols = st.columns(len(comparison_data))
+                                    for idx, data in enumerate(comparison_data):
+                                        with motions_cols[idx]:
+                                            st.markdown(f"**Meeting {idx + 1}**")
+                                            intelligence = data["intelligence"]
+                                            motions = intelligence.get("motions", [])
+                                            if motions:
+                                                for motion in motions[:3]:  # Show first 3
+                                                    status = motion.get("vote_outcome", "Unknown")
+                                                    status_color = "🟢" if status == "Passed" else "🔴" if status == "Failed" else "🟡"
+                                                    st.markdown(f"{status_color} {motion.get('topic', 'Unknown')[:40]}...")
+                                                if len(motions) > 3:
+                                                    st.caption(f"...and {len(motions) - 3} more")
+                                            else:
+                                                st.info("No motions recorded")
+
+                                    # Action items comparison
+                                    st.markdown("#### ✅ Action Items Comparison")
+                                    actions_cols = st.columns(len(comparison_data))
+                                    for idx, data in enumerate(comparison_data):
+                                        with actions_cols[idx]:
+                                            st.markdown(f"**Meeting {idx + 1}**")
+                                            intelligence = data["intelligence"]
+                                            actions = intelligence.get("action_items", [])
+                                            if actions:
+                                                for action in actions[:3]:  # Show first 3
+                                                    st.markdown(f"• {action.get('task_description', 'Unknown')[:50]}...")
+                                                if len(actions) > 3:
+                                                    st.caption(f"...and {len(actions) - 3} more")
+                                            else:
+                                                st.info("No action items recorded")
+
+                st.markdown("---")
+
+                # Load Meeting Section
+                st.markdown("### 📂 Load Meeting")
+                st.caption("Select a meeting from the table above, then enter its ID below to load it.")
+
+                col_load, col_delete = st.columns([3, 1])
+
+                with col_load:
+                    meeting_id_input = st.text_input(
+                        "Meeting ID",
+                        placeholder="Paste meeting ID here...",
+                        key="library_meeting_id"
+                    )
+
+                    if st.button("📥 Load Meeting", type="primary", key="library_load_btn"):
+                        if meeting_id_input:
+                            with st.spinner("Loading meeting data..."):
+                                full_data = db.load_full_meeting(meeting_id_input)
+
+                                if full_data:
+                                    # Find meeting metadata
+                                    meeting_meta = next((m for m in meetings if m.get("id") == meeting_id_input), {})
+
+                                    # Restore session state from database
+                                    st.session_state.current_meeting_id = meeting_id_input
+                                    st.session_state.video_filename = meeting_meta.get("video_filename", "")
+
+                                    if full_data.get("transcript"):
+                                        # Apply speaker name mappings
+                                        transcript = full_data["transcript"]
+                                        speakers_data = full_data.get("speakers", [])
+
+                                        if speakers_data and "utterances" in transcript:
+                                            speaker_map = {
+                                                s.get("original_label"): s.get("assigned_name")
+                                                for s in speakers_data
+                                                if s.get("original_label") and s.get("assigned_name")
+                                            }
+
+                                            for utterance in transcript["utterances"]:
+                                                old_label = utterance.get("speaker")
+                                                if old_label in speaker_map:
+                                                    utterance["speaker"] = speaker_map[old_label]
+
+                                        st.session_state.raw_transcript = transcript
+                                        st.session_state.formatted_transcript = processor.format_transcript(transcript)
+
+                                    if full_data.get("intelligence"):
+                                        st.session_state.intelligence_data = full_data["intelligence"]
+
+                                    if full_data.get("chat_history"):
+                                        st.session_state.chat_history = full_data["chat_history"]
+                                    else:
+                                        st.session_state.chat_history = []
+
+                                    st.session_state.bylaws_text = full_data.get("bylaws_text", "")
+
+                                    # Try to download audio
+                                    audio_path = db.download_audio(meeting_id_input)
+                                    if audio_path:
+                                        st.session_state.audio_path = audio_path
+                                    else:
+                                        st.session_state.audio_path = None
+
+                                    st.session_state.processing_complete = True
+                                    st.session_state.step = "results"
+                                    st.success("✅ Meeting loaded successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to load meeting data.")
+                        else:
+                            st.warning("Please enter a meeting ID.")
+
+                with col_delete:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("🗑️ Delete", type="secondary", key="library_delete_btn"):
+                        if meeting_id_input:
+                            if st.session_state.get("confirm_delete") == meeting_id_input:
+                                # Actually delete
+                                with st.spinner("Deleting meeting..."):
+                                    if db.delete_meeting(meeting_id_input):
+                                        st.success("Meeting deleted successfully!")
+                                        st.session_state.pop("confirm_delete", None)
+                                        st.rerun()
+                                    else:
+                                        st.error("Failed to delete meeting.")
+                            else:
+                                # First click - ask for confirmation
+                                st.session_state.confirm_delete = meeting_id_input
+                                st.warning("⚠️ Click Delete again to confirm.")
+                        else:
+                            st.warning("Please enter a meeting ID.")
+
+            else:
+                st.info("No meetings found. Upload and process a video to get started!")
